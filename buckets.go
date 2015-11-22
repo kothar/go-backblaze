@@ -1,8 +1,6 @@
 package backblaze
 
 import (
-	"bytes"
-	"encoding/json"
 	"errors"
 	"net/url"
 )
@@ -22,15 +20,27 @@ type Bucket struct {
 
 	uploadUrl          *url.URL `json:"-"`
 	authorizationToken string   `json:"-"`
-	client             *Client  `json:"-"`
+	b2                 *B2      `json:"-"`
 }
 
-type ListFilesRequest struct {
-	BucketId string `json:"bucketId"`
+type BucketRequest struct {
+	Id string `json:"bucketId"`
 }
 
-type GetUploadUrlRequest struct {
-	BucketId string `json:"bucketId"`
+type CreateBucketRequest struct {
+	AccountId  string `json:"accountId"`
+	BucketName string `json:"bucketName"`
+	BucketType `json:"bucketType"`
+}
+
+type DeleteBucketRequest struct {
+	AccountId string `json:"accountId"`
+	BucketId  string `json:"bucketId"`
+}
+
+type UpdateBucketRequest struct {
+	Id         string `json:"bucketId"`
+	BucketType `json:"bucketType"`
 }
 
 type GetUploadUrlResponse struct {
@@ -39,65 +49,103 @@ type GetUploadUrlResponse struct {
 	AuthorizationToken string `json:"authorizationToken"`
 }
 
-type ListBucketsRequest struct {
-	AccountId string `json:"accountId"`
+type AccountRequest struct {
+	Id string `json:"accountId"`
 }
 
 type ListBucketsResponse struct {
 	Buckets []*Bucket `json:"buckets"`
 }
 
-func (c *Client) CreateBucket(bucketName string, bucketType BucketType) *Bucket {
-	return nil
-}
-
-func (c *Client) DeleteBucket(bucketId string) error {
-	return nil
-}
-
-func (c *Client) ListBuckets() ([]*Bucket, error) {
-	request := &ListBucketsRequest{
-		AccountId: c.AccountId,
+// Creates a new bucket. A bucket belongs to the account used to create it.
+//
+// Buckets can be named. The name must be globally unique. No account can use
+// a bucket with the same name. Buckets are assigned a unique bucketId which
+// is used when uploading, downloading, or deleting files.
+func (b *B2) CreateBucket(bucketName string, bucketType BucketType) (*Bucket, error) {
+	request := &CreateBucketRequest{
+		AccountId:  b.AccountId,
+		BucketName: bucketName,
+		BucketType: bucketType,
 	}
+	response := &Bucket{b2: b}
 
-	body, err := json.Marshal(request)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := c.Post(c.apiUrl+V1+"b2_list_buckets", bytes.NewReader(body))
-	if err != nil {
+	if err := b.apiRequest("b2_create_bucket", request, response); err != nil {
 		return nil, err
 	}
 
+	return response, nil
+}
+
+// Deletes the bucket specified. Only buckets that contain no version of any
+// files can be deleted.
+func (b *B2) DeleteBucket(bucketId string) (*Bucket, error) {
+	request := &DeleteBucketRequest{
+		AccountId: b.AccountId,
+		BucketId:  bucketId,
+	}
+	response := &Bucket{b2: b}
+
+	if err := b.apiRequest("b2_delete_bucket", request, response); err != nil {
+		return nil, err
+	}
+
+	return response, nil
+}
+
+// Deletes the bucket specified. Only buckets that contain no version of any
+// files can be deleted.
+func (b *Bucket) Delete() error {
+	_, error := b.b2.DeleteBucket(b.Id)
+	return error
+}
+
+// Lists buckets associated with an account, in alphabetical order by bucket
+// ID.
+func (b *B2) ListBuckets() ([]*Bucket, error) {
+	request := &AccountRequest{
+		Id: b.AccountId,
+	}
 	response := &ListBucketsResponse{}
-	err = parseResponse(resp, response)
-	if err != nil {
+
+	if err := b.apiRequest("b2_list_buckets", request, response); err != nil {
 		return nil, err
 	}
 
 	// Construct bucket list
-	for _, v := range response.Buckets {
-		v.client = c
+	for _, bucket := range response.Buckets {
+		bucket.b2 = b
 
-		switch v.BucketType {
+		switch bucket.BucketType {
 		case "allPublic":
 		case "allPrivate":
 		default:
-			return nil, errors.New("Uncrecognised bucket type: " + string(v.BucketType))
+			return nil, errors.New("Uncrecognised bucket type: " + string(bucket.BucketType))
 		}
 	}
 
 	return response.Buckets, nil
 }
 
-func (c *Client) UpdateBucket(bucketId string, bucketType BucketType) *Bucket {
-	return nil
+// Update an existing bucket.
+func (b *B2) UpdateBucket(bucketId string, bucketType BucketType) (*Bucket, error) {
+	request := &UpdateBucketRequest{
+		Id:         bucketId,
+		BucketType: bucketType,
+	}
+	response := &Bucket{b2: b}
+
+	if err := b.apiRequest("b2_update_bucket", request, response); err != nil {
+		return nil, err
+	}
+
+	return response
 }
 
-func (c *Client) Bucket(bucketName string) (*Bucket, error) {
+// Lookup a bucket for the currently authorized client
+func (b *B2) Bucket(bucketName string) (*Bucket, error) {
 
-	// Lookup a bucket for the currently authorized client
-	buckets, err := c.ListBuckets()
+	buckets, err := b.ListBuckets()
 	if err != nil {
 		return nil, err
 	}
@@ -111,24 +159,18 @@ func (c *Client) Bucket(bucketName string) (*Bucket, error) {
 	return nil, nil
 }
 
+// Gets an URL to use for uploading files.
+//
+// When you upload a file to B2, you must call b2_get_upload_url first to get
+// the URL for uploading directly to the place where the file will be stored.
 func (b *Bucket) GetUploadUrl() (*url.URL, error) {
 	if b.uploadUrl == nil {
-		request := &GetUploadUrlRequest{
-			BucketId: b.Id,
-		}
-
-		body, err := json.Marshal(request)
-		if err != nil {
-			return nil, err
-		}
-		resp, err := b.client.Post(b.client.apiUrl+V1+"b2_get_upload_url", bytes.NewReader(body))
-		if err != nil {
-			return nil, err
+		request := &BucketRequest{
+			Id: b.Id,
 		}
 
 		response := &GetUploadUrlResponse{}
-		err = parseResponse(resp, response)
-		if err != nil {
+		if err := b.b2.apiRequest("b2_get_upload_url", request, response); err != nil {
 			return nil, err
 		}
 

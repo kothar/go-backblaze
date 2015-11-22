@@ -17,6 +17,9 @@ type Options struct {
 	// Bucket
 	Bucket string `short:"b" long:"bucket" env:"B2_BUCKET"`
 
+	Debug   bool `short:"d" long:"debug" description:"Debug API requests"`
+	Verbose bool `short:"v" long:"verbose" description:"Display verbose output"`
+
 	// Commands =================
 
 	Delete struct {
@@ -43,9 +46,15 @@ func main() {
 	}
 }
 
-func Client() (*backblaze.Client, error) {
-	return backblaze.NewClient(backblaze.Credentials{
+func Client() (*backblaze.B2, error) {
+	c, err := backblaze.NewB2(backblaze.Credentials{
 		opts.AccountId,
 		opts.ApplicationKey,
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	c.Debug = opts.Debug
+	return c, nil
 }

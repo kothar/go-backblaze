@@ -1,6 +1,7 @@
 package backblaze
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,13 +21,17 @@ type Credentials struct {
 	ApplicationKey string
 }
 
-type Client struct {
-	http.Client
+type B2 struct {
 	Credentials
 
+	// If true, display debugging information about API calls
+	Debug bool
+
+	// State
 	authorizationToken string
 	apiUrl             string
 	downloadUrl        string
+	httpClient         http.Client
 }
 
 type B2Error struct {
@@ -46,27 +51,40 @@ type AuthorizeAccountResponse struct {
 	DownloadUrl        string `json:"downloadUrl"`
 }
 
-func NewClient(creds Credentials) (*Client, error) {
-	c := &Client{
+// Creates a new Client for accessing the B2 API.
+// The AuthorizeAccount method will be called immediately.
+func NewB2(creds Credentials) (*B2, error) {
+	c := &B2{
 		Credentials: creds,
 	}
 
 	// Authorize account
-	req, err := http.NewRequest("GET", B2_HOST+V1+"b2_authorize_account", nil)
-	if err != nil {
+	if err := c.AuthorizeAccount(); err != nil {
 		return nil, err
 	}
-	req.SetBasicAuth(creds.AccountId, creds.ApplicationKey)
 
-	resp, err := c.Do(req)
+	return c, nil
+}
+
+// Used to log in to the B2 API. Returns an authorization token that can be
+// used for account-level operations, and a URL that should be used as the
+// base URL for subsequent API calls.
+func (c *B2) AuthorizeAccount() error {
+	req, err := http.NewRequest("GET", B2_HOST+V1+"b2_authorize_account", nil)
 	if err != nil {
-		return nil, err
+		return err
+	}
+	req.SetBasicAuth(c.AccountId, c.ApplicationKey)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
 	}
 
 	authResponse := &AuthorizeAccountResponse{}
-	err = parseResponse(resp, authResponse)
+	err = c.parseResponse(resp, authResponse)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	// Store token
@@ -74,11 +92,11 @@ func NewClient(creds Credentials) (*Client, error) {
 	c.downloadUrl = authResponse.DownloadUrl
 	c.apiUrl = authResponse.ApiUrl
 
-	return c, nil
+	return nil
 }
 
 // Create an authorized request using the client's credentials
-func (c *Client) authRequest(method, path string, body io.Reader) (*http.Request, error) {
+func (c *B2) authRequest(method, path string, body io.Reader) (*http.Request, error) {
 	req, err := http.NewRequest(method, path, body)
 	if err != nil {
 		return nil, err
@@ -88,56 +106,63 @@ func (c *Client) authRequest(method, path string, body io.Reader) (*http.Request
 		req.Header.Add("Authorization", c.authorizationToken)
 	}
 
-	println("Request: " + req.URL.String())
+	if c.Debug {
+		println("Request: " + req.URL.String())
+	}
 
 	return req, nil
 }
 
 // Create an authorized GET request
-func (c *Client) Get(path string) (*http.Response, error) {
+func (c *B2) get(path string) (*http.Response, error) {
 	req, err := c.authRequest("GET", path, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	return c.Do(req)
+	return c.httpClient.Do(req)
 }
 
-// create an authorized POST request
-func (c *Client) Post(path string, body io.Reader) (*http.Response, error) {
+// Create an authorized POST request
+func (c *B2) post(path string, body io.Reader) (*http.Response, error) {
 	req, err := c.authRequest("POST", path, body)
 	if err != nil {
 		return nil, err
 	}
 
-	return c.Do(req)
+	return c.httpClient.Do(req)
 }
 
-func parseError(resp *http.Response) error {
+// Looks for an error message in the response body and parses it into a
+// B2Error object
+func (c *B2) parseError(resp *http.Response) error {
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return err
 	}
 
-	println("Response: " + string(body))
+	if c.Debug {
+		println("Response: " + string(body))
+	}
 
 	b2err := &B2Error{}
 	json.Unmarshal(body, b2err)
 	return b2err
 }
 
-func parseResponse(resp *http.Response, result interface{}) error {
+// Attempts to parse a response body into the provided result struct
+func (c *B2) parseResponse(resp *http.Response, result interface{}) error {
 	defer resp.Body.Close()
 
 	// Check response code
 	switch resp.StatusCode {
 	case 200: // Response is OK
 	case 400: // BAD_REQUEST
-		return parseError(resp)
+		return c.parseError(resp)
 	case 401:
 		return errors.New("UNAUTHORIZED - The account ID is wrong, the account does not have B2 enabled, or the application key is not valid")
 	default:
-		if err := parseError(resp); err != nil {
+		if err := c.parseError(resp); err != nil {
 			return err
 		}
 		return fmt.Errorf("Unrecognised status code: %d", resp.StatusCode)
@@ -147,7 +172,29 @@ func parseResponse(resp *http.Response, result interface{}) error {
 	if err != nil {
 		return err
 	}
-	println("Response: " + string(body))
+
+	if c.Debug {
+		println("Response: " + string(body))
+	}
 
 	return json.Unmarshal(body, result)
+}
+
+// Perform a B2 API request with the provided request and response objects
+func (c *B2) apiRequest(apiMethod string, request interface{}, response interface{}) error {
+	body, err := json.Marshal(request)
+	if err != nil {
+		return err
+	}
+	resp, err := c.post(c.apiUrl+V1+apiMethod, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+
+	err = c.parseResponse(resp, response)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

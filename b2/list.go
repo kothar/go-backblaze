@@ -32,9 +32,15 @@ func (o *List) Execute(args []string) error {
 		return err
 	}
 
-	fmt.Printf("Contents of %s/\n", opts.Bucket)
-	for _, file := range response.Files {
-		fmt.Printf("%10d %40s     %s\n", file.Size, time.Unix(file.UploadTimestamp/1000, file.UploadTimestamp%1000), file.Name)
+	if opts.Verbose {
+		fmt.Printf("Contents of %s/\n", opts.Bucket)
+		for _, file := range response.Files {
+			fmt.Printf("%10d %40s     %s\n", file.Size, time.Unix(file.UploadTimestamp/1000, file.UploadTimestamp%1000), file.Name)
+		}
+	} else {
+		for _, file := range response.Files {
+			fmt.Println(file.Name)
+		}
 	}
 
 	return nil
