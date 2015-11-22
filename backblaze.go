@@ -11,6 +11,8 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"strconv"
+	"strings"
 )
 
 const (
@@ -149,7 +151,7 @@ func NewClient(creds Credentials) (*Client, error) {
 
 // Create an authorized request using the client's credentials
 func (c *Client) authRequest(method, path string, body io.Reader) (*http.Request, error) {
-	req, err := http.NewRequest(method, c.apiUrl+V1+path, body)
+	req, err := http.NewRequest(method, path, body)
 	if err != nil {
 		return nil, err
 	}
@@ -248,7 +250,7 @@ func (c *Client) ListBuckets() ([]*Bucket, error) {
 	if err != nil {
 		return nil, err
 	}
-	resp, err := c.Post("b2_list_buckets", bytes.NewReader(body))
+	resp, err := c.Post(c.apiUrl+V1+"b2_list_buckets", bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
@@ -312,7 +314,7 @@ func (b *Bucket) ListFileNames(startFileName string, maxFileCount int) (*ListFil
 	if err != nil {
 		return nil, err
 	}
-	resp, err := b.client.Post("b2_list_file_names", bytes.NewReader(body))
+	resp, err := b.client.Post(b.client.apiUrl+V1+"b2_list_file_names", bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
@@ -383,8 +385,47 @@ func (b *Bucket) GetFileInfo(fileId string) *File {
 	return nil
 }
 
-func (b *Bucket) DownloadFileByName(fileName string) (*File, io.Reader) {
-	return nil, nil
+func (b *Bucket) DownloadFileByName(fileName string) (*File, io.ReadCloser, error) {
+
+	url := b.client.downloadUrl + "/file/" + b.Name + "/" + fileName
+
+	resp, err := b.client.Get(url)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	switch resp.StatusCode {
+	case 200:
+	default:
+		if err := parseError(resp); err != nil {
+			return nil, nil, err
+		}
+		return nil, nil, fmt.Errorf("Unrecognised status code: %d", resp.StatusCode)
+	}
+
+	file := &File{
+		AccountId:   b.AccountId,
+		BucketId:    b.Id,
+		Id:          resp.Header.Get("X-Bz-File-Id"),
+		Name:        resp.Header.Get("X-Bz-File-Name"),
+		ContentSha1: resp.Header.Get("X-Bz-Content-Sha1"),
+		ContentType: resp.Header.Get("Content-Type"),
+		FileInfo:    make(map[string]string),
+	}
+
+	size, err := strconv.ParseInt(resp.Header.Get("Content-Length"), 10, 64)
+	if err != nil {
+		return nil, nil, err
+	}
+	file.ContentLength = size
+
+	for k, v := range resp.Header {
+		if strings.HasPrefix(k, "X-Bz-Info-") {
+			file.FileInfo[k[len("X-Bz-Info-"):]] = v[0]
+		}
+	}
+
+	return file, resp.Body, nil
 }
 
 func (b *Bucket) ListAllFileVersions() *ListFileVersionsResponse {
@@ -421,7 +462,7 @@ func (b *Bucket) GetUploadUrl() (*url.URL, error) {
 		if err != nil {
 			return nil, err
 		}
-		resp, err := b.client.Post("b2_get_upload_url", bytes.NewReader(body))
+		resp, err := b.client.Post(b.client.apiUrl+V1+"b2_get_upload_url", bytes.NewReader(body))
 		if err != nil {
 			return nil, err
 		}

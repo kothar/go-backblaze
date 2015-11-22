@@ -19,9 +19,6 @@ type Options struct {
 
 	// Commands =================
 
-	Get struct {
-	} `command:"get"`
-
 	Delete struct {
 	} `command:"delete"`
 
