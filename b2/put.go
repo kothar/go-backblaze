@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"errors"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 
@@ -45,7 +47,9 @@ func upload(bucket *backblaze.Bucket, file string) (*backblaze.File, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	all, err := ioutil.ReadAll(reader)
 	defer reader.Close()
 
-	return bucket.UploadFile(filepath.Base(file), reader)
+	return bucket.UploadFile(filepath.Base(file), bytes.NewReader(all))
 }

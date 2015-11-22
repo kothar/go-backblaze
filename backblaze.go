@@ -33,38 +33,38 @@ type Client struct {
 	downloadUrl        string
 }
 
-type BucketType int
+type BucketType string
 
 const (
-	AllPublic BucketType = iota
-	AllPrivate
+	AllPublic  BucketType = "allPublic"
+	AllPrivate            = "allPrivate"
 )
 
 type Bucket struct {
-	AccountId string
-	Id        string
-	Name      string
-	BucketType
+	Id         string `json:"bucketId"`
+	AccountId  string `json:"accountId"`
+	Name       string `json:"bucketName"`
+	BucketType `json:"bucketType"`
 
-	uploadUrl          *url.URL
-	authorizationToken string
-
-	client *Client
+	uploadUrl          *url.URL `json:"-"`
+	authorizationToken string   `json:"-"`
+	client             *Client  `json:"-"`
 }
 
 type File struct {
-	Id            string
-	Name          string
-	AccountId     string
-	BucketId      string
-	ContentLength int64
-	ContentType   string
-	FileInfo      map[string]string
+	Id            string            `json:"fileId"`
+	Name          string            `json:"fileName"`
+	AccountId     string            `json:"accountId"`
+	BucketId      string            `json:"bucketId"`
+	ContentLength int64             `json:"contentLength"`
+	ContentSha1   string            `json:"contentSha1"`
+	ContentType   string            `json:"contentType"`
+	FileInfo      map[string]string `json:"fileInfo"`
 }
 
 type ListFilesResponse struct {
-	Files        []FileStatus
-	NextFileName string
+	Files        []*FileStatus `json:"files"`
+	NextFileName string        `json:"nextFileName"`
 }
 
 type ListFileVersionsResponse struct {
@@ -73,18 +73,19 @@ type ListFileVersionsResponse struct {
 	NextFileId     string
 }
 
-type FileAction int
+type FileAction string
 
 const (
-	Upload FileAction = iota
-	Hide
+	Upload FileAction = "upload"
+	Hide              = "hide"
 )
 
 type FileStatus struct {
-	FileId   string
-	FileName string
-	FileAction
-	Size int
+	FileAction      `json:"action"`
+	Id              string `json:"fileId"`
+	Name            string `json:"fileName"`
+	Size            int    `json:"size"`
+	UploadTimestamp int64  `json:"uploadTimestamp"`
 }
 
 // {
@@ -234,34 +235,8 @@ type ListBucketsRequest struct {
 	AccountId string `json:"accountId"`
 }
 
-// {
-//     "buckets": [
-//     {
-//         "bucketId": "4a48fe8875c6214145260818",
-//         "accountId": "30f20426f0b1",
-//         "bucketName" : "Kitten Videos",
-//         "bucketType": "allPrivate"
-//     },
-//     {
-//         "bucketId" : "5b232e8875c6214145260818",
-//         "accountId": "30f20426f0b1",
-//         "bucketName": "Puppy Videos",
-//         "bucketType": "allPublic"
-//     },
-//     {
-//         "bucketId": "87ba238875c6214145260818",
-//         "accountId": "30f20426f0b1",
-//         "bucketName": "Vacation Pictures",
-//         "bucketType" : "allPrivate"
-//     } ]
-// }
 type ListBucketsResponse struct {
-	Buckets []struct {
-		BucketId   string `json:"bucketId"`
-		AccountId  string `json:"accountId"`
-		BucketName string `json:"bucketName"`
-		BucketType string `json:"bucketType"`
-	} `json:"buckets"`
+	Buckets []*Bucket `json:"buckets"`
 }
 
 func (c *Client) ListBuckets() ([]*Bucket, error) {
@@ -285,26 +260,18 @@ func (c *Client) ListBuckets() ([]*Bucket, error) {
 	}
 
 	// Construct bucket list
-	buckets := make([]*Bucket, len(response.Buckets))
-	for i, v := range response.Buckets {
-		buckets[i] = &Bucket{
-			AccountId: v.AccountId,
-			Id:        v.BucketId,
-			Name:      v.BucketName,
-			client:    c,
-		}
+	for _, v := range response.Buckets {
+		v.client = c
 
 		switch v.BucketType {
 		case "allPublic":
-			buckets[i].BucketType = AllPublic
 		case "allPrivate":
-			buckets[i].BucketType = AllPrivate
 		default:
-			return nil, errors.New("Uncrecognised bucket type: " + v.BucketType)
+			return nil, errors.New("Uncrecognised bucket type: " + string(v.BucketType))
 		}
 	}
 
-	return buckets, nil
+	return response.Buckets, nil
 }
 
 func (c *Client) UpdateBucket(bucketId string, bucketType BucketType) *Bucket {
@@ -332,31 +299,31 @@ func (c *Client) Bucket(bucketName string) (*Bucket, error) {
 	return nil, nil
 }
 
-func (b *Bucket) ListFileNames(startFileName string, maxFileCount int) *ListFilesResponse {
-	return nil
+type ListFilesRequest struct {
+	BucketId string `json:"bucketId"`
 }
 
-// {
-//     "fileId" : "4_h4a48fe8875c6214145260818_f000000000000472a_d20140104_m032022_c001_v0000123_t0104",
-//     "fileName" : "typing_test.txt",
-//     "accountId" : "d522aa47a10f",
-//     "bucketId" : "4a48fe8875c6214145260818",
-//     "contentLength" : 46,
-//     "contentSha1" : "bae5ed658ab3546aee12f23f36392f35dba1ebdd",
-//     "contentType" : "text/plain",
-//     "fileInfo" : {
-//        "author" : "unknown"
-//     }
-// }
-type UploadFileResponse struct {
-	FileId        string            `json:"fileId"`
-	FileName      string            `json:"fileName"`
-	AccountId     string            `json:"accountId"`
-	BucketId      string            `json:"bucketId"`
-	ContentLength int64             `json:"contentLength"`
-	ContentSha1   string            `json:"contentSha1"`
-	ContentType   string            `json:"contentType"`
-	FileInfo      map[string]string `json:"fileInfo"`
+func (b *Bucket) ListFileNames(startFileName string, maxFileCount int) (*ListFilesResponse, error) {
+	request := &ListFilesRequest{
+		BucketId: b.Id,
+	}
+
+	body, err := json.Marshal(request)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := b.client.Post("b2_list_file_names", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListFilesResponse{}
+	err = parseResponse(resp, response)
+	if err != nil {
+		return nil, err
+	}
+
+	return response, nil
 }
 
 func (b *Bucket) UploadFile(name string, file io.ReadSeeker) (*File, error) {
@@ -372,9 +339,12 @@ func (b *Bucket) UploadFile(name string, file io.ReadSeeker) (*File, error) {
 	if _, err := io.Copy(hash, file); err != nil {
 		return nil, err
 	}
-
-	file.Seek(0, 0)
 	sha1Hash := hex.EncodeToString(hash.Sum(nil))
+	println("  SHA1: " + sha1Hash)
+
+	if _, err := file.Seek(0, 0); err != nil {
+		return nil, err
+	}
 
 	// Create authorized request
 	req, err := http.NewRequest("POST", b.uploadUrl.String(), file)
@@ -395,7 +365,7 @@ func (b *Bucket) UploadFile(name string, file io.ReadSeeker) (*File, error) {
 		return nil, err
 	}
 
-	result := &UploadFileResponse{}
+	result := &File{}
 	if err := parseResponse(resp, result); err != nil {
 		b.uploadUrl = nil
 		b.authorizationToken = ""
@@ -406,15 +376,7 @@ func (b *Bucket) UploadFile(name string, file io.ReadSeeker) (*File, error) {
 		return nil, errors.New("SHA1 of uploaded file does not match local hash")
 	}
 
-	return &File{
-		Id:            result.FileId,
-		Name:          result.FileName,
-		AccountId:     result.AccountId,
-		BucketId:      result.BucketId,
-		ContentLength: result.ContentLength,
-		ContentType:   result.ContentType,
-		FileInfo:      result.FileInfo,
-	}, nil
+	return result, nil
 }
 
 func (b *Bucket) GetFileInfo(fileId string) *File {

@@ -18,8 +18,6 @@ type Options struct {
 	Bucket string `short:"b" long:"bucket" env:"B2_BUCKET"`
 
 	// Commands =================
-	List struct {
-	} `command:"list"`
 
 	Get struct {
 	} `command:"get"`
