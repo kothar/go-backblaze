@@ -112,13 +112,15 @@ func (b *Bucket) ListFileNames(startFileName string, maxFileCount int) (*ListFil
 }
 
 // Uploads one file to B2, returning its unique file ID.
-func (b *Bucket) UploadFile(name string, file io.ReadSeeker) (*File, error) {
+func (b *Bucket) UploadFile(name string, meta map[string]string, file io.ReadSeeker) (*File, error) {
 	_, err := b.GetUploadUrl()
 	if err != nil {
 		return nil, err
 	}
 
-	println("Upload: " + b.Name + "/" + name)
+	if b.b2.Debug {
+		println("Upload: " + b.Name + "/" + name)
+	}
 
 	// Hash the upload
 	hash := sha1.New()
@@ -126,7 +128,9 @@ func (b *Bucket) UploadFile(name string, file io.ReadSeeker) (*File, error) {
 		return nil, err
 	}
 	sha1Hash := hex.EncodeToString(hash.Sum(nil))
-	println("  SHA1: " + sha1Hash)
+	if b.b2.Debug {
+		println("  SHA1: " + sha1Hash)
+	}
 
 	if _, err := file.Seek(0, 0); err != nil {
 		return nil, err
@@ -143,6 +147,12 @@ func (b *Bucket) UploadFile(name string, file io.ReadSeeker) (*File, error) {
 	req.Header.Add("X-Bz-File-Name", name)
 	req.Header.Add("Content-Type", "b2/x-auto")
 	req.Header.Add("X-Bz-Content-Sha1", sha1Hash)
+
+	if meta != nil {
+		for k, v := range meta {
+			req.Header.Add("X-Bz-Info-"+k, v)
+		}
+	}
 
 	resp, err := b.b2.httpClient.Do(req)
 	if err != nil {

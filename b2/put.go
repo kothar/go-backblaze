@@ -55,5 +55,5 @@ func upload(bucket *backblaze.Bucket, file string) (*backblaze.File, error) {
 	all, err := ioutil.ReadAll(reader)
 	defer reader.Close()
 
-	return bucket.UploadFile(filepath.Base(file), bytes.NewReader(all))
+	return bucket.UploadFile(filepath.Base(file), nil, bytes.NewReader(all))
 }
