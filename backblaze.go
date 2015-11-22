@@ -13,7 +13,6 @@ import (
 const (
 	B2_HOST = "https://api.backblaze.com"
 	V1      = "/b2api/v1/"
-	V2      = "/b2api/v2/"
 )
 
 type Credentials struct {

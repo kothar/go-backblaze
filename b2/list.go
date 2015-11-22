@@ -7,6 +7,7 @@ import (
 )
 
 type List struct {
+	ListVersions bool `short:"a" long:"allVersions" description:"List all versions of files"`
 }
 
 func init() {
@@ -27,19 +28,37 @@ func (o *List) Execute(args []string) error {
 		return errors.New("Bucket not found: " + opts.Bucket)
 	}
 
-	response, err := bucket.ListFileNames("", 100)
-	if err != nil {
-		return err
-	}
+	if o.ListVersions {
+		response, err := bucket.ListFileVersions("", "", 100)
+		if err != nil {
+			return err
+		}
 
-	if opts.Verbose {
-		fmt.Printf("Contents of %s/\n", opts.Bucket)
-		for _, file := range response.Files {
-			fmt.Printf("%10d %40s     %s\n", file.Size, time.Unix(file.UploadTimestamp/1000, file.UploadTimestamp%1000), file.Name)
+		if opts.Verbose {
+			fmt.Printf("Contents of %s/\n", opts.Bucket)
+			for _, file := range response.Files {
+				fmt.Printf("%s\n%10d %s %-20s\n\n", file.Id, file.Size, time.Unix(file.UploadTimestamp/1000, file.UploadTimestamp%1000), file.Name)
+			}
+		} else {
+			for _, file := range response.Files {
+				fmt.Println(file.Name + ":" + file.Id)
+			}
 		}
 	} else {
-		for _, file := range response.Files {
-			fmt.Println(file.Name)
+		response, err := bucket.ListFileNames("", 100)
+		if err != nil {
+			return err
+		}
+
+		if opts.Verbose {
+			fmt.Printf("Contents of %s/\n", opts.Bucket)
+			for _, file := range response.Files {
+				fmt.Printf("%10d %s %-20s\n", file.Size, time.Unix(file.UploadTimestamp/1000, file.UploadTimestamp%1000), file.Name)
+			}
+		} else {
+			for _, file := range response.Files {
+				fmt.Println(file.Name)
+			}
 		}
 	}
 

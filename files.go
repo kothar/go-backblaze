@@ -46,8 +46,8 @@ type ListFilesResponse struct {
 
 type ListFileVersionsRequest struct {
 	BucketId      string `json:"bucketId"`
-	StartFileName string `json:"startFileName"`
-	StartFileId   string `json:"startFileId"`
+	StartFileName string `json:"startFileName,omitempty"`
+	StartFileId   string `json:"startFileId,omitempty"`
 	MaxFileCount  int    `json:"maxFileCount"`
 }
 

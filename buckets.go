@@ -139,7 +139,7 @@ func (b *B2) UpdateBucket(bucketId string, bucketType BucketType) (*Bucket, erro
 		return nil, err
 	}
 
-	return response
+	return response, nil
 }
 
 // Lookup a bucket for the currently authorized client
