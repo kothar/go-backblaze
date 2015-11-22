@@ -11,7 +11,7 @@ type Delete struct {
 }
 
 func init() {
-	parser.AddCommand("delete", "Delete a file from B2",
+	parser.AddCommand("delete", "Delete a file",
 		"Specify just a filename to hide the file from listings. Specifiy a version id as fileName:versionId to permanently delete a file version.",
 		&Delete{})
 }

@@ -10,11 +10,15 @@ import (
 	"github.com/pH14/go-backblaze"
 )
 
+// TODO support directories
+// TODO support replacing all previous versions
 type Put struct {
 }
 
 func init() {
-	parser.AddCommand("put", "Store a file in B2", "", &Put{})
+	parser.AddCommand("put", "Store a file",
+		"Uploads one or more files. Specify the bucket with -b, and the filenames to upload as extra arguments.",
+		&Put{})
 }
 
 func (o *Put) Execute(args []string) error {

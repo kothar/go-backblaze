@@ -66,7 +66,7 @@ type FileAction string
 
 const (
 	Upload FileAction = "upload"
-	Hide              = "hide"
+	Hide   FileAction = "hide"
 )
 
 type FileStatus struct {

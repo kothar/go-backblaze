@@ -9,7 +9,7 @@ type BucketType string
 
 const (
 	AllPublic  BucketType = "allPublic"
-	AllPrivate            = "allPrivate"
+	AllPrivate BucketType = "allPrivate"
 )
 
 type Bucket struct {

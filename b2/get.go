@@ -12,11 +12,16 @@ import (
 	"github.com/pH14/go-backblaze"
 )
 
+// TODO support subdirectories
+// TODO support destination path
+// TODO support version id downloads
 type Get struct {
 }
 
 func init() {
-	parser.AddCommand("get", "Download a file from B2", "", &Get{})
+	parser.AddCommand("get", "Download a file",
+		"Downloads one or more files to the current directory. Specify the bucket with -b, and the filenames to download as extra arguments.",
+		&Get{})
 }
 
 func (o *Get) Execute(args []string) error {

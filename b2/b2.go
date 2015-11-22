@@ -19,20 +19,6 @@ type Options struct {
 
 	Debug   bool `short:"d" long:"debug" description:"Debug API requests"`
 	Verbose bool `short:"v" long:"verbose" description:"Display verbose output"`
-
-	// Commands =================
-
-	Delete struct {
-	} `command:"delete"`
-
-	ListBuckets struct {
-	} `command:"listbuckets"`
-
-	CreateBucket struct {
-	} `command:"createbucket"`
-
-	DeleteBucket struct {
-	} `command:"deletebucket"`
 }
 
 var opts = &Options{}
