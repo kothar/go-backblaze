@@ -1,7 +1,7 @@
 package main
 
 import (
-	"fmt"
+	"errors"
 	"os"
 	"path/filepath"
 
@@ -20,15 +20,21 @@ func (o *Put) Execute(args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("\nClient: %+v\n", client)
 
 	bucket, err := client.Bucket(opts.Bucket)
 	if err != nil {
 		return err
 	}
+	if bucket == nil {
+		return errors.New("Bucket not found: " + opts.Bucket)
+	}
 
 	for _, file := range args {
-		upload(bucket, file)
+		_, err := upload(bucket, file)
+		if err != nil {
+			return err
+		}
+
 	}
 
 	return nil
