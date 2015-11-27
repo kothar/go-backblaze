@@ -23,37 +23,37 @@ type Bucket struct {
 	b2                 *B2
 }
 
-type BucketRequest struct {
+type bucketRequest struct {
 	Id string `json:"bucketId"`
 }
 
-type CreateBucketRequest struct {
+type createBucketRequest struct {
 	AccountId  string `json:"accountId"`
 	BucketName string `json:"bucketName"`
 	BucketType `json:"bucketType"`
 }
 
-type DeleteBucketRequest struct {
+type deleteBucketRequest struct {
 	AccountId string `json:"accountId"`
 	BucketId  string `json:"bucketId"`
 }
 
-type UpdateBucketRequest struct {
+type updateBucketRequest struct {
 	Id         string `json:"bucketId"`
 	BucketType `json:"bucketType"`
 }
 
-type GetUploadUrlResponse struct {
+type getUploadUrlResponse struct {
 	BucketId           string `json:"bucketId"`
 	UploadUrl          string `json:"uploadUrl"`
 	AuthorizationToken string `json:"authorizationToken"`
 }
 
-type AccountRequest struct {
+type accountRequest struct {
 	Id string `json:"accountId"`
 }
 
-type ListBucketsResponse struct {
+type listBucketsResponse struct {
 	Buckets []*Bucket `json:"buckets"`
 }
 
@@ -63,7 +63,7 @@ type ListBucketsResponse struct {
 // a bucket with the same name. Buckets are assigned a unique bucketId which
 // is used when uploading, downloading, or deleting files.
 func (b *B2) CreateBucket(bucketName string, bucketType BucketType) (*Bucket, error) {
-	request := &CreateBucketRequest{
+	request := &createBucketRequest{
 		AccountId:  b.AccountId,
 		BucketName: bucketName,
 		BucketType: bucketType,
@@ -80,7 +80,7 @@ func (b *B2) CreateBucket(bucketName string, bucketType BucketType) (*Bucket, er
 // Deletes the bucket specified. Only buckets that contain no version of any
 // files can be deleted.
 func (b *B2) DeleteBucket(bucketId string) (*Bucket, error) {
-	request := &DeleteBucketRequest{
+	request := &deleteBucketRequest{
 		AccountId: b.AccountId,
 		BucketId:  bucketId,
 	}
@@ -103,10 +103,10 @@ func (b *Bucket) Delete() error {
 // Lists buckets associated with an account, in alphabetical order by bucket
 // ID.
 func (b *B2) ListBuckets() ([]*Bucket, error) {
-	request := &AccountRequest{
+	request := &accountRequest{
 		Id: b.AccountId,
 	}
-	response := &ListBucketsResponse{}
+	response := &listBucketsResponse{}
 
 	if err := b.apiRequest("b2_list_buckets", request, response); err != nil {
 		return nil, err
@@ -129,7 +129,7 @@ func (b *B2) ListBuckets() ([]*Bucket, error) {
 
 // Update an existing bucket.
 func (b *B2) UpdateBucket(bucketId string, bucketType BucketType) (*Bucket, error) {
-	request := &UpdateBucketRequest{
+	request := &updateBucketRequest{
 		Id:         bucketId,
 		BucketType: bucketType,
 	}
@@ -165,11 +165,11 @@ func (b *B2) Bucket(bucketName string) (*Bucket, error) {
 // the URL for uploading directly to the place where the file will be stored.
 func (b *Bucket) GetUploadUrl() (*url.URL, error) {
 	if b.uploadUrl == nil {
-		request := &BucketRequest{
+		request := &bucketRequest{
 			Id: b.Id,
 		}
 
-		response := &GetUploadUrlResponse{}
+		response := &getUploadUrlResponse{}
 		if err := b.b2.apiRequest("b2_get_upload_url", request, response); err != nil {
 			return nil, err
 		}

@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	B2_HOST = "https://api.backblaze.com"
-	V1      = "/b2api/v1/"
+	b2Host = "https://api.backblaze.com"
+	v1     = "/b2api/v1/"
 )
 
 type Credentials struct {
@@ -43,7 +43,7 @@ func (e *B2Error) Error() string {
 	return e.Code + ": " + e.Message
 }
 
-type AuthorizeAccountResponse struct {
+type authorizeAccountResponse struct {
 	AccountId          string `json:"accountId"`
 	ApiUrl             string `json:"apiUrl"`
 	AuthorizationToken string `json:"authorizationToken"`
@@ -69,7 +69,7 @@ func NewB2(creds Credentials) (*B2, error) {
 // used for account-level operations, and a URL that should be used as the
 // base URL for subsequent API calls.
 func (c *B2) AuthorizeAccount() error {
-	req, err := http.NewRequest("GET", B2_HOST+V1+"b2_authorize_account", nil)
+	req, err := http.NewRequest("GET", b2Host+v1+"b2_authorize_account", nil)
 	if err != nil {
 		return err
 	}
@@ -80,7 +80,7 @@ func (c *B2) AuthorizeAccount() error {
 		return err
 	}
 
-	authResponse := &AuthorizeAccountResponse{}
+	authResponse := &authorizeAccountResponse{}
 	err = c.parseResponse(resp, authResponse)
 	if err != nil {
 		return err
@@ -185,7 +185,7 @@ func (c *B2) apiRequest(apiMethod string, request interface{}, response interfac
 	if err != nil {
 		return err
 	}
-	resp, err := c.post(c.apiUrl+V1+apiMethod, bytes.NewReader(body))
+	resp, err := c.post(c.apiUrl+v1+apiMethod, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}

@@ -20,7 +20,7 @@ func ExampleBucket(b2 *backblaze.B2) *backblaze.Bucket {
 	return bucket
 }
 
-func ExampleUploadFile(bucket *backblaze.Bucket, path string) *backblaze.File {
+func ExampleBucketUploadFile(bucket *backblaze.Bucket, path string) *backblaze.File {
 	reader, _ := os.Open(path)
 	name := filepath.Base(path)
 	metadata := make(map[string]string)
