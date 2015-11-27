@@ -1,4 +1,6 @@
 # go-backblaze
+![http://godoc.org/gigodoc.org/gopkg.in/kothar/go-backblaze.v0](https://godoc.org/gopkg.in/kothar/go-backblaze.v0?status.svg)
+
 A golang client for Backblaze's B2 storage
 
 ## Usage
@@ -68,5 +70,5 @@ Available commands:
 
 ## Links
 
-* GoDoc: (https://godoc.org/gopkg.in/kothar/go-backblaze.v0)[https://godoc.org/gopkg.in/kothar/go-backblaze.v0]
-* Originally based on pH14's work on the API: (https://github.com/pH14/go-backblaze)[https://github.com/pH14/go-backblaze]
+* GoDoc: [https://godoc.org/gopkg.in/kothar/go-backblaze.v0](https://godoc.org/gopkg.in/kothar/go-backblaze.v0)
+* Originally based on pH14's work on the API: [https://github.com/pH14/go-backblaze](https://github.com/pH14/go-backblaze)
