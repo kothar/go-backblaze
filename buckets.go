@@ -18,9 +18,9 @@ type Bucket struct {
 	Name       string `json:"bucketName"`
 	BucketType `json:"bucketType"`
 
-	uploadUrl          *url.URL `json:"-"`
-	authorizationToken string   `json:"-"`
-	b2                 *B2      `json:"-"`
+	uploadUrl          *url.URL
+	authorizationToken string
+	b2                 *B2
 }
 
 type BucketRequest struct {

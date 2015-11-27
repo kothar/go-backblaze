@@ -2,8 +2,13 @@ package main
 
 import (
 	"errors"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+
+	"github.com/gosuri/uiprogress"
+	"github.com/gosuri/uiprogress/util/strutil"
 
 	"github.com/pH14/go-backblaze"
 )
@@ -33,23 +38,60 @@ func (o *Put) Execute(args []string) error {
 		return errors.New("Bucket not found: " + opts.Bucket)
 	}
 
+	uiprogress.Start()
 	for _, file := range args {
 		_, err := upload(bucket, file)
 		if err != nil {
 			return err
 		}
-
 	}
 
 	return nil
 }
 
+type progressReader struct {
+	bar *uiprogress.Bar
+	r   io.ReadSeeker
+}
+
+func (p *progressReader) Read(b []byte) (int, error) {
+	read, err := p.r.Read(b)
+	p.bar.Set(p.bar.Current() + read)
+	return read, err
+}
+
+func (p *progressReader) Seek(offset int64, whence int) (int64, error) {
+	switch whence {
+	case 0:
+		p.bar.Set(int(offset))
+	case 1:
+		p.bar.Set(p.bar.Current() + int(offset))
+	case 2:
+		p.bar.Set(p.bar.Total - int(offset))
+	}
+	return p.r.Seek(offset, whence)
+}
+
 func upload(bucket *backblaze.Bucket, file string) (*backblaze.File, error) {
+
+	stat, err := os.Stat(file)
+	if err != nil {
+		return nil, err
+	}
+
 	reader, err := os.Open(file)
 	if err != nil {
 		return nil, err
 	}
 	defer reader.Close()
 
-	return bucket.UploadFile(filepath.Base(file), nil, reader)
+	bar := uiprogress.AddBar(int(stat.Size()))
+	bar.AppendCompleted()
+	bar.PrependFunc(func(b *uiprogress.Bar) string { return fmt.Sprintf("%10d", b.Total) })
+	bar.PrependFunc(func(b *uiprogress.Bar) string { return strutil.Resize(file, 50) })
+	bar.Width = 30
+
+	r := &progressReader{bar, reader}
+
+	return bucket.UploadFile(filepath.Base(file), nil, r)
 }

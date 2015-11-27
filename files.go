@@ -112,39 +112,65 @@ func (b *Bucket) ListFileNames(startFileName string, maxFileCount int) (*ListFil
 }
 
 // Uploads one file to B2, returning its unique file ID.
+// This method computes the hash of the file before passing it to UploadHashedFile
 func (b *Bucket) UploadFile(name string, meta map[string]string, file io.Reader) (*File, error) {
+
+	// Hash the upload
+	hash := sha1.New()
+
+	var reader io.Reader
+	var contentLength int64
+	if r, ok := file.(io.ReadSeeker); ok {
+		// If the input is seekable, just hash then seek back to the beginning
+		written, err := io.Copy(hash, r)
+		if err != nil {
+			return nil, err
+		}
+		r.Seek(0, 0)
+		reader = r
+		contentLength = written
+	} else {
+		// If the input is not seekable, buffer it while hashing, and use the buffer as input
+		buffer := &bytes.Buffer{}
+		r := io.TeeReader(file, buffer)
+
+		written, err := io.Copy(hash, r)
+		if err != nil {
+			return nil, err
+		}
+		reader = buffer
+		contentLength = written
+	}
+
+	sha1Hash := hex.EncodeToString(hash.Sum(nil))
+	return b.UploadHashedFile(name, meta, reader, sha1Hash, contentLength)
+}
+
+// Uploads one file to B2, returning its unique file ID.
+func (b *Bucket) UploadHashedFile(name string, meta map[string]string, file io.Reader, sha1Hash string, contentLength int64) (*File, error) {
+
 	_, err := b.GetUploadUrl()
 	if err != nil {
 		return nil, err
 	}
 
 	if b.b2.Debug {
-		println("Upload: " + b.Name + "/" + name)
-	}
-
-	// Hash the upload
-	hash := sha1.New()
-	buffer := &bytes.Buffer{}
-	r := io.TeeReader(file, buffer)
-
-	if _, err := io.Copy(hash, r); err != nil {
-		return nil, err
-	}
-	sha1Hash := hex.EncodeToString(hash.Sum(nil))
-	if b.b2.Debug {
-		println("  SHA1: " + sha1Hash)
+		fmt.Printf("         Upload: %s/%s\n", b.Name, name)
+		fmt.Printf("           SHA1: %s\n", sha1Hash)
+		fmt.Printf("  ContentLength: %d\n", contentLength)
 	}
 
 	// Create authorized request
-	req, err := http.NewRequest("POST", b.uploadUrl.String(), buffer)
+	req, err := http.NewRequest("POST", b.uploadUrl.String(), file)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Add("Authorization", b.authorizationToken)
 
 	// Set file metadata
-	req.Header.Add("X-Bz-File-Name", name)
+	req.ContentLength = contentLength
 	req.Header.Add("Content-Type", "b2/x-auto")
+	req.Header.Add("X-Bz-File-Name", name)
 	req.Header.Add("X-Bz-Content-Sha1", sha1Hash)
 
 	if meta != nil {

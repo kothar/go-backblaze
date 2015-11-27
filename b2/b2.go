@@ -6,7 +6,7 @@ import (
 
 	"github.com/jessevdk/go-flags"
 
-	"github.com/pH14/go-backblaze"
+	backblaze "github.com/pH14/go-backblaze"
 )
 
 type Options struct {
@@ -34,8 +34,8 @@ func main() {
 
 func Client() (*backblaze.B2, error) {
 	c, err := backblaze.NewB2(backblaze.Credentials{
-		opts.AccountId,
-		opts.ApplicationKey,
+		AccountId:      opts.AccountId,
+		ApplicationKey: opts.ApplicationKey,
 	})
 	if err != nil {
 		return nil, err

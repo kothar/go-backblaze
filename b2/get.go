@@ -4,11 +4,13 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 
 	"github.com/gosuri/uiprogress"
 	"github.com/gosuri/uiprogress/util/strutil"
+
 	"github.com/pH14/go-backblaze"
 )
 
@@ -51,14 +53,15 @@ func (o *Get) Execute(args []string) error {
 	return nil
 }
 
-type barWriter struct {
+type progressWriter struct {
 	bar *uiprogress.Bar
+	w   io.Writer
 }
 
-func (bw *barWriter) Write(b []byte) (int, error) {
-	size := len(b)
-	bw.bar.Set(bw.bar.Current() + size)
-	return size, nil
+func (p *progressWriter) Write(b []byte) (int, error) {
+	written, err := p.w.Write(b)
+	p.bar.Set(p.bar.Current() + written)
+	return written, err
 }
 
 func download(bucket *backblaze.Bucket, file string) error {
@@ -70,6 +73,7 @@ func download(bucket *backblaze.Bucket, file string) error {
 
 	bar := uiprogress.AddBar(int(fileInfo.ContentLength))
 	bar.AppendCompleted()
+	bar.PrependFunc(func(b *uiprogress.Bar) string { return fmt.Sprintf("%10d", b.Total) })
 	bar.PrependFunc(func(b *uiprogress.Bar) string { return strutil.Resize(fileInfo.Name, 50) })
 	bar.Width = 30
 
@@ -80,7 +84,7 @@ func download(bucket *backblaze.Bucket, file string) error {
 	defer writer.Close()
 
 	sha := sha1.New()
-	tee := io.MultiWriter(writer, sha, &barWriter{bar})
+	tee := io.MultiWriter(sha, &progressWriter{bar, writer})
 
 	_, err = io.Copy(tee, reader)
 	if err != nil {
