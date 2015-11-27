@@ -1,5 +1,5 @@
 # go-backblaze
-![http://godoc.org/gigodoc.org/gopkg.in/kothar/go-backblaze.v0](https://godoc.org/gopkg.in/kothar/go-backblaze.v0?status.svg)
+[![GoDoc](https://godoc.org/gopkg.in/kothar/go-backblaze.v0?status.svg)](https://godoc.org/gopkg.in/kothar/go-backblaze.v0)
 
 A golang client for Backblaze's B2 storage
 
