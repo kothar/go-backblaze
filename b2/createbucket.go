@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/pH14/go-backblaze"
+	"gopkg.in/kothar/go-backblaze.v0"
 )
 
 type CreateBucket struct {

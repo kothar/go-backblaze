@@ -1,11 +1,72 @@
 # go-backblaze
 A golang client for Backblaze's B2 storage
 
-WIP! I'd need a B2 account to really test things out.
+## Usage
 
-Ideally it should behave something like this:
+Some simple examples to get you started. Errors are ommitted for brevity
 
-    client := backblaze.NewClient(accountId, applicationKey)
-    bucket := client.CreateBucket("kittens", AllPublic)
-    file := bucket.UploadFile(someFileBlob)
-    allFiles := bucket.ListAllFiles()
+Import the API package
+~~~
+import "gopkg.in/kothar/go-backblaze.v0"
+~~~
+
+Create an API client
+~~~
+b2, _ := backblaze.NewB2(backblaze.Credentials{
+	AccountId:      accountId,
+	ApplicationKey: applicationKey,
+})
+~~~
+
+Create a bucket
+~~~
+bucket, _ := b2.CreateBucket("test_bucket", backblaze.AllPrivate)
+~~~
+
+Uploading a file
+~~~
+reader, _ := os.Open(path)
+name := filepath.Base(path)
+metadata := make(map[string]string)
+
+file, _ := bucket.UploadFile(name, metadata, reader)
+~~~
+
+## b2 command line client
+
+A test applicaiton has been implemented using this package, and can be found in the /b2 directory.
+It should provide you with more examples of how to use the API in your own applications.
+
+To install the b2 command, use:
+
+`go install gopkg.in/kothar/go-backblaze.v0/b2`
+
+~~~
+$ b2 --help
+Usage:
+  b2 [OPTIONS] <command>
+
+Application Options:
+      --account= The account ID to use [$B2_ACCOUNT_ID]
+      --appKey=  The application key to use [$B2_APP_KEY]
+  -b, --bucket=  The bucket to access [$B2_BUCKET]
+  -d, --debug    Debug API requests
+  -v, --verbose  Display verbose output
+
+Help Options:
+  -h, --help     Show this help message
+
+Available commands:
+  createbucket  Create a new bucket
+  delete        Delete a file
+  deletebucket  Delete a bucket
+  get           Download a file
+  list          List files in a bucket
+  listbuckets   List buckets in an account
+  put           Store a file
+~~~
+
+## Links
+
+* GoDoc: (https://godoc.org/gopkg.in/kothar/go-backblaze.v0)[https://godoc.org/gopkg.in/kothar/go-backblaze.v0]
+* Originally based on pH14's work on the API: (https://github.com/pH14/go-backblaze)[https://github.com/pH14/go-backblaze]
