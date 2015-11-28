@@ -85,17 +85,20 @@ func upload(bucket *backblaze.Bucket, file string) (*backblaze.File, error) {
 	}
 	defer reader.Close()
 
-	bar := uiprogress.AddBar(int(stat.Size()))
-	bar.AppendFunc(func(b *uiprogress.Bar) string {
-		speed := (float32(b.Current()) / 1.024) / float32(b.TimeElapsed())
-		return fmt.Sprintf("%7.2f KB/s", speed)
-	})
-	bar.AppendCompleted()
-	bar.PrependFunc(func(b *uiprogress.Bar) string { return fmt.Sprintf("%10d", b.Total) })
-	bar.PrependFunc(func(b *uiprogress.Bar) string { return strutil.Resize(file, 50) })
-	bar.Width = 20
+	var r io.Reader = reader
+	if opts.Verbose {
+		bar := uiprogress.AddBar(int(stat.Size()))
+		bar.AppendFunc(func(b *uiprogress.Bar) string {
+			speed := (float32(b.Current()) / 1.024) / float32(b.TimeElapsed())
+			return fmt.Sprintf("%7.2f KB/s", speed)
+		})
+		bar.AppendCompleted()
+		bar.PrependFunc(func(b *uiprogress.Bar) string { return fmt.Sprintf("%10d", b.Total) })
+		bar.PrependFunc(func(b *uiprogress.Bar) string { return strutil.Resize(file, 50) })
+		bar.Width = 20
 
-	r := &progressReader{bar, reader}
+		r = &progressReader{bar, reader}
+	}
 
 	return bucket.UploadFile(filepath.Base(file), nil, r)
 }

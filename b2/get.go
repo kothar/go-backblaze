@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"sync"
@@ -87,32 +86,17 @@ func (o *Get) Execute(args []string) error {
 
 type progressWriter struct {
 	bar *uiprogress.Bar
+	w   io.Writer
 }
 
 func (p *progressWriter) Write(b []byte) (int, error) {
-	written := len(b)
+	written, err := p.w.Write(b)
 	p.bar.Set(p.bar.Current() + written)
-	return written, nil
+	return written, err
 }
 
 func download(fileInfo *backblaze.File, reader io.ReadCloser, path string) error {
 	defer reader.Close()
-
-	// Display download progress
-	var w io.Writer = ioutil.Discard
-	if opts.Verbose {
-		bar := uiprogress.AddBar(int(fileInfo.ContentLength))
-		bar.AppendFunc(func(b *uiprogress.Bar) string {
-			speed := (float32(b.Current()) / 1024) / float32(b.TimeElapsed().Seconds())
-			return fmt.Sprintf("%7.2f KB/s", speed)
-		})
-		bar.AppendCompleted()
-		bar.PrependFunc(func(b *uiprogress.Bar) string { return fmt.Sprintf("%10d", b.Total) })
-		bar.PrependFunc(func(b *uiprogress.Bar) string { return strutil.Resize(fileInfo.Name, 50) })
-		bar.Width = 20
-
-		w = &progressWriter{bar}
-	}
 
 	err := os.MkdirAll(filepath.Dir(path), 0777)
 	if err != nil {
@@ -125,8 +109,23 @@ func download(fileInfo *backblaze.File, reader io.ReadCloser, path string) error
 	}
 	defer writer.Close()
 
+	var w io.Writer = writer
+	if opts.Verbose {
+		bar := uiprogress.AddBar(int(fileInfo.ContentLength))
+		bar.AppendFunc(func(b *uiprogress.Bar) string {
+			speed := (float32(b.Current()) / 1024) / float32(b.TimeElapsed().Seconds())
+			return fmt.Sprintf("%7.2f KB/s", speed)
+		})
+		bar.AppendCompleted()
+		bar.PrependFunc(func(b *uiprogress.Bar) string { return fmt.Sprintf("%10d", b.Total) })
+		bar.PrependFunc(func(b *uiprogress.Bar) string { return strutil.Resize(fileInfo.Name, 50) })
+		bar.Width = 20
+
+		w = &progressWriter{bar, writer}
+	}
+
 	sha := sha1.New()
-	tee := io.MultiWriter(sha, writer, w)
+	tee := io.MultiWriter(sha, w)
 
 	_, err = io.Copy(tee, reader)
 	if err != nil {
