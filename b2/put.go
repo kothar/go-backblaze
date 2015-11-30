@@ -16,6 +16,7 @@ import (
 // TODO support directories
 // TODO support replacing all previous versions
 type Put struct {
+	Meta map[string]string `long:"meta" description:"Assign metadata to uploaded files"`
 }
 
 func init() {
@@ -40,7 +41,7 @@ func (o *Put) Execute(args []string) error {
 
 	uiprogress.Start()
 	for _, file := range args {
-		_, err := upload(bucket, file)
+		_, err := upload(bucket, file, o.Meta)
 		if err != nil {
 			return err
 		}
@@ -72,7 +73,7 @@ func (p *progressReader) Seek(offset int64, whence int) (int64, error) {
 	return p.r.Seek(offset, whence)
 }
 
-func upload(bucket *backblaze.Bucket, file string) (*backblaze.File, error) {
+func upload(bucket *backblaze.Bucket, file string, meta map[string]string) (*backblaze.File, error) {
 
 	stat, err := os.Stat(file)
 	if err != nil {
@@ -100,5 +101,5 @@ func upload(bucket *backblaze.Bucket, file string) (*backblaze.File, error) {
 		r = &progressReader{bar, reader}
 	}
 
-	return bucket.UploadFile(filepath.Base(file), nil, r)
+	return bucket.UploadFile(filepath.Base(file), meta, r)
 }
