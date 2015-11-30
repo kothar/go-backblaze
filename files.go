@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 )
@@ -170,12 +171,12 @@ func (b *Bucket) UploadHashedFile(name string, meta map[string]string, file io.R
 	// Set file metadata
 	req.ContentLength = contentLength
 	req.Header.Add("Content-Type", "b2/x-auto")
-	req.Header.Add("X-Bz-File-Name", name)
+	req.Header.Add("X-Bz-File-Name", url.QueryEscape(name))
 	req.Header.Add("X-Bz-Content-Sha1", sha1Hash)
 
 	if meta != nil {
 		for k, v := range meta {
-			req.Header.Add("X-Bz-Info-"+k, v)
+			req.Header.Add("X-Bz-Info-"+url.QueryEscape(k), url.QueryEscape(v))
 		}
 	}
 
@@ -233,14 +234,22 @@ func (b *B2) downloadFile(resp *http.Response) (*File, io.ReadCloser, error) {
 	case 200:
 	default:
 		if err := b.parseError(resp); err != nil {
+			resp.Body.Close()
 			return nil, nil, err
 		}
+		resp.Body.Close()
 		return nil, nil, fmt.Errorf("Unrecognised status code: %d", resp.StatusCode)
+	}
+
+	name, err := url.QueryUnescape(resp.Header.Get("X-Bz-File-Name"))
+	if err != nil {
+		resp.Body.Close()
+		return nil, nil, err
 	}
 
 	file := &File{
 		Id:          resp.Header.Get("X-Bz-File-Id"),
-		Name:        resp.Header.Get("X-Bz-File-Name"),
+		Name:        name,
 		ContentSha1: resp.Header.Get("X-Bz-Content-Sha1"),
 		ContentType: resp.Header.Get("Content-Type"),
 		FileInfo:    make(map[string]string),
@@ -248,13 +257,23 @@ func (b *B2) downloadFile(resp *http.Response) (*File, io.ReadCloser, error) {
 
 	size, err := strconv.ParseInt(resp.Header.Get("Content-Length"), 10, 64)
 	if err != nil {
+		resp.Body.Close()
 		return nil, nil, err
 	}
 	file.ContentLength = size
 
 	for k, v := range resp.Header {
 		if strings.HasPrefix(k, "X-Bz-Info-") {
-			file.FileInfo[k[len("X-Bz-Info-"):]] = v[0]
+			key, err := url.QueryUnescape(k[len("X-Bz-Info-"):])
+			if err != nil {
+				key = "Error decoding key"
+			}
+
+			value, err := url.QueryUnescape(v[0])
+			if err != nil {
+				value = "Error decoding value"
+			}
+			file.FileInfo[key] = value
 		}
 	}
 
