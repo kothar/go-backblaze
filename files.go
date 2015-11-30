@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -266,12 +267,14 @@ func (b *B2) downloadFile(resp *http.Response) (*File, io.ReadCloser, error) {
 		if strings.HasPrefix(k, "X-Bz-Info-") {
 			key, err := url.QueryUnescape(k[len("X-Bz-Info-"):])
 			if err != nil {
-				key = "Error decoding key"
+				key = k[len("X-Bz-Info-"):]
+				log.Printf("Unable to decode key: %q", key)
 			}
 
 			value, err := url.QueryUnescape(v[0])
 			if err != nil {
-				value = "Error decoding value"
+				value = v[0]
+				log.Printf("Unable to decode value: %q", value)
 			}
 			file.FileInfo[key] = value
 		}
