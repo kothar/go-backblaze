@@ -89,7 +89,7 @@ func upload(bucket *backblaze.Bucket, file string) (*backblaze.File, error) {
 	if opts.Verbose {
 		bar := uiprogress.AddBar(int(stat.Size()))
 		bar.AppendFunc(func(b *uiprogress.Bar) string {
-			speed := (float32(b.Current()) / 1.024) / float32(b.TimeElapsed())
+			speed := (float32(b.Current()) / 1024) / float32(b.TimeElapsed().Seconds())
 			return fmt.Sprintf("%7.2f KB/s", speed)
 		})
 		bar.AppendCompleted()
