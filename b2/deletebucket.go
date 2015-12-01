@@ -4,6 +4,7 @@ import (
 	"fmt"
 )
 
+// DeleteBucket is a command
 type DeleteBucket struct {
 }
 
@@ -11,6 +12,7 @@ func init() {
 	parser.AddCommand("deletebucket", "Delete a bucket", "", &DeleteBucket{})
 }
 
+// Execute the deletebucket command
 func (o *DeleteBucket) Execute(args []string) error {
 	client, err := Client()
 	if err != nil {
@@ -22,7 +24,7 @@ func (o *DeleteBucket) Execute(args []string) error {
 		return err
 	}
 
-	if _, err = client.DeleteBucket(bucket.Id); err != nil {
+	if err = bucket.Delete(); err != nil {
 		return err
 	}
 

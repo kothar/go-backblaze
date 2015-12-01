@@ -1,5 +1,6 @@
 # go-backblaze
 [![GoDoc](https://godoc.org/gopkg.in/kothar/go-backblaze.v0?status.svg)](https://godoc.org/gopkg.in/kothar/go-backblaze.v0)
+[![Build Status](https://travis-ci.org/kothar/go-backblaze.svg)](https://travis-ci.org/kothar/go-backblaze)
 
 A golang client for Backblaze's B2 storage
 
@@ -15,8 +16,8 @@ import "gopkg.in/kothar/go-backblaze.v0"
 Create an API client
 ~~~
 b2, _ := backblaze.NewB2(backblaze.Credentials{
-	AccountId:      accountId,
-	ApplicationKey: applicationKey,
+  AccountID:      accountID,
+  ApplicationKey: applicationKey,
 })
 ~~~
 

@@ -6,6 +6,7 @@ import (
 	"time"
 )
 
+// List is a command
 type List struct {
 	ListVersions bool `short:"a" long:"allVersions" description:"List all versions of files"`
 }
@@ -14,6 +15,7 @@ func init() {
 	parser.AddCommand("list", "List files in a bucket", "", &List{})
 }
 
+// Execute the list command
 func (o *List) Execute(args []string) error {
 	client, err := Client()
 	if err != nil {
@@ -37,11 +39,11 @@ func (o *List) Execute(args []string) error {
 		if opts.Verbose {
 			fmt.Printf("Contents of %s/\n", opts.Bucket)
 			for _, file := range response.Files {
-				fmt.Printf("%s\n%10d %s %-20s\n\n", file.Id, file.Size, time.Unix(file.UploadTimestamp/1000, file.UploadTimestamp%1000), file.Name)
+				fmt.Printf("%s\n%10d %s %-20s\n\n", file.ID, file.Size, time.Unix(file.UploadTimestamp/1000, file.UploadTimestamp%1000), file.Name)
 			}
 		} else {
 			for _, file := range response.Files {
-				fmt.Println(file.Name + ":" + file.Id)
+				fmt.Println(file.Name + ":" + file.ID)
 			}
 		}
 	} else {

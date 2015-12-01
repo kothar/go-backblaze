@@ -9,9 +9,10 @@ import (
 	"gopkg.in/kothar/go-backblaze.v0"
 )
 
+// Options defines command line flags used by this application
 type Options struct {
 	// Credentials
-	AccountId      string `long:"account" env:"B2_ACCOUNT_ID" description:"The account ID to use"`
+	AccountID      string `long:"account" env:"B2_ACCOUNT_ID" description:"The account ID to use"`
 	ApplicationKey string `long:"appKey" env:"B2_APP_KEY" description:"The application key to use"`
 
 	// Bucket
@@ -32,9 +33,10 @@ func main() {
 	}
 }
 
+// Client obtains an instance of the B2 client
 func Client() (*backblaze.B2, error) {
 	c, err := backblaze.NewB2(backblaze.Credentials{
-		AccountId:      opts.AccountId,
+		AccountID:      opts.AccountID,
 		ApplicationKey: opts.ApplicationKey,
 	})
 	if err != nil {

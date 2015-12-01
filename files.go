@@ -16,19 +16,20 @@ import (
 )
 
 type fileRequest struct {
-	Id string `json:"fileId"`
+	ID string `json:"fileId"`
 }
 
 type fileVersionRequest struct {
 	Name string `json:"fileName"`
-	Id   string `json:"fileId"`
+	ID   string `json:"fileId"`
 }
 
+// File descibes a file stored in a B2 bucket
 type File struct {
-	Id            string            `json:"fileId"`
+	ID            string            `json:"fileId"`
 	Name          string            `json:"fileName"`
-	AccountId     string            `json:"accountId"`
-	BucketId      string            `json:"bucketId"`
+	AccountID     string            `json:"accountId"`
+	BucketID      string            `json:"bucketId"`
 	ContentLength int64             `json:"contentLength"`
 	ContentSha1   string            `json:"contentSha1"`
 	ContentType   string            `json:"contentType"`
@@ -36,71 +37,63 @@ type File struct {
 }
 
 type listFilesRequest struct {
-	BucketId      string `json:"bucketId"`
+	BucketID      string `json:"bucketId"`
 	StartFileName string `json:"startFileName"`
 	MaxFileCount  int    `json:"maxFileCount"`
 }
 
+// ListFilesResponse lists a page of files stored in a B2 bucket
 type ListFilesResponse struct {
 	Files        []FileStatus `json:"files"`
 	NextFileName string       `json:"nextFileName"`
 }
 
 type listFileVersionsRequest struct {
-	BucketId      string `json:"bucketId"`
+	BucketID      string `json:"bucketId"`
 	StartFileName string `json:"startFileName,omitempty"`
-	StartFileId   string `json:"startFileId,omitempty"`
+	StartFileID   string `json:"startFileId,omitempty"`
 	MaxFileCount  int    `json:"maxFileCount"`
 }
 
+// ListFileVersionsResponse lists a page of file versions stored in a B2 bucket
 type ListFileVersionsResponse struct {
 	Files        []FileStatus `json:"files"`
 	NextFileName string       `json:"nextFileName"`
-	NextFileId   string       `json:"nextFileId"`
+	NextFileID   string       `json:"nextFileId"`
 }
 
 type hideFileRequest struct {
-	BucketId string `json:"bucketId"`
+	BucketID string `json:"bucketId"`
 	FileName string `json:"fileName"`
 }
 
+// FileAction indicates the current status of a file in a B2 bucket
 type FileAction string
 
+// Files can be either uploads (visible) or hidden.
+//
+// Hiding a file makes it look like the file has been deleted, without
+// removing any of the history. It adds a new version of the file that is a
+// marker saying the file is no longer there.
 const (
 	Upload FileAction = "upload"
 	Hide   FileAction = "hide"
 )
 
+// FileStatus describes minimal metadata about a file in a B2 bucket.
+// It is returned by the ListFileNames and ListFileVersions methods
 type FileStatus struct {
 	FileAction      `json:"action"`
-	Id              string `json:"fileId"`
+	ID              string `json:"fileId"`
 	Name            string `json:"fileName"`
 	Size            int    `json:"size"`
 	UploadTimestamp int64  `json:"uploadTimestamp"`
 }
 
-// Downloads one file from B2.
-func (b *B2) DownloadFileById(fileId string) (*File, io.ReadCloser, error) {
-	request := &fileRequest{
-		Id: fileId,
-	}
-	body, err := json.Marshal(request)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	resp, err := b.post(b.apiUrl+v1+"b2_download_file_by_id", bytes.NewReader(body))
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return b.downloadFile(resp)
-}
-
-// Lists the names of all files in a bucket, starting at a given name.
+// ListFileNames lists the names of all files in a bucket, starting at a given name.
 func (b *Bucket) ListFileNames(startFileName string, maxFileCount int) (*ListFilesResponse, error) {
 	request := &listFilesRequest{
-		BucketId:      b.Id,
+		BucketID:      b.ID,
 		StartFileName: startFileName,
 		MaxFileCount:  maxFileCount,
 	}
@@ -113,7 +106,7 @@ func (b *Bucket) ListFileNames(startFileName string, maxFileCount int) (*ListFil
 	return response, nil
 }
 
-// Uploads one file to B2, returning its unique file ID.
+// UploadFile uploads a file to B2, returning its unique file ID.
 // This method computes the hash of the file before passing it to UploadHashedFile
 func (b *Bucket) UploadFile(name string, meta map[string]string, file io.Reader) (*File, error) {
 
@@ -148,10 +141,10 @@ func (b *Bucket) UploadFile(name string, meta map[string]string, file io.Reader)
 	return b.UploadHashedFile(name, meta, reader, sha1Hash, contentLength)
 }
 
-// Uploads one file to B2, returning its unique file ID.
+// UploadHashedFile Uploads a file to B2, returning its unique file ID.
 func (b *Bucket) UploadHashedFile(name string, meta map[string]string, file io.Reader, sha1Hash string, contentLength int64) (*File, error) {
 
-	_, err := b.GetUploadUrl()
+	_, err := b.getUploadURL()
 	if err != nil {
 		return nil, err
 	}
@@ -163,7 +156,7 @@ func (b *Bucket) UploadHashedFile(name string, meta map[string]string, file io.R
 	}
 
 	// Create authorized request
-	req, err := http.NewRequest("POST", b.uploadUrl.String(), file)
+	req, err := http.NewRequest("POST", b.uploadURL.String(), file)
 	if err != nil {
 		return nil, err
 	}
@@ -183,14 +176,14 @@ func (b *Bucket) UploadHashedFile(name string, meta map[string]string, file io.R
 
 	resp, err := b.b2.httpClient.Do(req)
 	if err != nil {
-		b.uploadUrl = nil
+		b.uploadURL = nil
 		b.authorizationToken = ""
 		return nil, err
 	}
 
 	result := &File{}
 	if err := b.b2.parseResponse(resp, result); err != nil {
-		b.uploadUrl = nil
+		b.uploadURL = nil
 		b.authorizationToken = ""
 		return nil, err
 	}
@@ -202,10 +195,10 @@ func (b *Bucket) UploadHashedFile(name string, meta map[string]string, file io.R
 	return result, nil
 }
 
-// Gets information about one file stored in B2.
-func (b *Bucket) GetFileInfo(fileId string) (*File, error) {
+// GetFileInfo retrieves information about one file stored in B2.
+func (b *Bucket) GetFileInfo(fileID string) (*File, error) {
 	request := &fileRequest{
-		Id: fileId,
+		ID: fileID,
 	}
 	response := &File{}
 
@@ -216,11 +209,29 @@ func (b *Bucket) GetFileInfo(fileId string) (*File, error) {
 	return response, nil
 }
 
-// Downloads one file by providing the name of the bucket and the name of the
+// DownloadFileByID downloads a file from B2 using its unique ID
+func (b *B2) DownloadFileByID(fileID string) (*File, io.ReadCloser, error) {
+	request := &fileRequest{
+		ID: fileID,
+	}
+	body, err := json.Marshal(request)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	resp, err := b.post(b.apiEndpoint+v1+"b2_download_file_by_id", bytes.NewReader(body))
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return b.downloadFile(resp)
+}
+
+// DownloadFileByName Downloads one file by providing the name of the bucket and the name of the
 // file.
 func (b *Bucket) DownloadFileByName(fileName string) (*File, io.ReadCloser, error) {
 
-	url := b.b2.downloadUrl + "/file/" + b.Name + "/" + fileName
+	url := b.b2.downloadURL + "/file/" + b.Name + "/" + fileName
 
 	resp, err := b.b2.get(url)
 	if err != nil {
@@ -249,7 +260,7 @@ func (b *B2) downloadFile(resp *http.Response) (*File, io.ReadCloser, error) {
 	}
 
 	file := &File{
-		Id:          resp.Header.Get("X-Bz-File-Id"),
+		ID:          resp.Header.Get("X-Bz-File-Id"),
 		Name:        name,
 		ContentSha1: resp.Header.Get("X-Bz-Content-Sha1"),
 		ContentType: resp.Header.Get("Content-Type"),
@@ -283,14 +294,14 @@ func (b *B2) downloadFile(resp *http.Response) (*File, io.ReadCloser, error) {
 	return file, resp.Body, nil
 }
 
-// Lists all of the versions of all of the files contained in one bucket, in
-// alphabetical order by file name, and by reverse of date/time uploaded for
-// versions of files with the same name.
-func (b *Bucket) ListFileVersions(startFileName, startFileId string, maxFileCount int) (*ListFileVersionsResponse, error) {
+// ListFileVersions lists all of the versions of all of the files contained in
+// one bucket, in alphabetical order by file name, and by reverse of date/time
+// uploaded for versions of files with the same name.
+func (b *Bucket) ListFileVersions(startFileName, startFileID string, maxFileCount int) (*ListFileVersionsResponse, error) {
 	request := &listFileVersionsRequest{
-		BucketId:      b.Id,
+		BucketID:      b.ID,
 		StartFileName: startFileName,
-		StartFileId:   startFileId,
+		StartFileID:   startFileID,
 		MaxFileCount:  maxFileCount,
 	}
 	response := &ListFileVersionsResponse{}
@@ -302,16 +313,16 @@ func (b *Bucket) ListFileVersions(startFileName, startFileId string, maxFileCoun
 	return response, nil
 }
 
-// Deletes one version of a file from B2.
+// DeleteFileVersion deletes one version of a file from B2.
 //
 // If the version you delete is the latest version, and there are older
 // versions, then the most recent older version will become the current
 // version, and be the one that you'll get when downloading by name. See the
 // File Versions page for more details.
-func (b *Bucket) DeleteFileVersion(fileName, fileId string) (*FileStatus, error) {
+func (b *Bucket) DeleteFileVersion(fileName, fileID string) (*FileStatus, error) {
 	request := &fileVersionRequest{
 		Name: fileName,
-		Id:   fileId,
+		ID:   fileID,
 	}
 	response := &FileStatus{}
 
@@ -322,12 +333,12 @@ func (b *Bucket) DeleteFileVersion(fileName, fileId string) (*FileStatus, error)
 	return response, nil
 }
 
-// Hides a file so that downloading by name will not find the file, but
-// previous versions of the file are still stored. See File Versions about
+// HideFile hides a file so that downloading by name will not find the file,
+// but previous versions of the file are still stored. See File Versions about
 // what it means to hide a file.
 func (b *Bucket) HideFile(fileName string) (*FileStatus, error) {
 	request := &hideFileRequest{
-		BucketId: b.Id,
+		BucketID: b.ID,
 		FileName: fileName,
 	}
 	response := &FileStatus{}
