@@ -5,6 +5,7 @@ import (
 	"strings"
 )
 
+// Delete is a command
 type Delete struct {
 	Hide bool `long:"hide" description:"Hide the file, leaving previous versions in place"`
 	All  bool `short:"a" long:"all" description:"Remove all versions of a file"`
@@ -16,6 +17,7 @@ func init() {
 		&Delete{})
 }
 
+// Execute the delete command
 func (o *Delete) Execute(args []string) error {
 	client, err := Client()
 	if err != nil {
@@ -57,7 +59,7 @@ func (o *Delete) Execute(args []string) error {
 						break
 					}
 
-					if _, err := bucket.DeleteFileVersion(file, f.Id); err != nil {
+					if _, err := bucket.DeleteFileVersion(file, f.ID); err != nil {
 						return err
 					}
 					count++

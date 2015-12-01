@@ -6,6 +6,7 @@ import (
 	"gopkg.in/kothar/go-backblaze.v0"
 )
 
+// CreateBucket is a command
 type CreateBucket struct {
 	Public bool `short:"p" long:"public" description:"Make bucket contents public"`
 }
@@ -14,6 +15,7 @@ func init() {
 	parser.AddCommand("createbucket", "Create a new bucket", "", &CreateBucket{})
 }
 
+// Execute the createbucket command
 func (o *CreateBucket) Execute(args []string) error {
 	client, err := Client()
 	if err != nil {

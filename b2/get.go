@@ -19,6 +19,8 @@ import (
 // TODO support subdirectories
 // TODO support destination path
 // TODO support version id downloads
+
+// Get is a command
 type Get struct {
 	Threads int `short:"j" long:"threads" default:"5" description:"Maximum simultaneous downloads to process"`
 }
@@ -29,6 +31,7 @@ func init() {
 		&Get{})
 }
 
+// Execute the get command
 func (o *Get) Execute(args []string) error {
 	client, err := Client()
 	if err != nil {

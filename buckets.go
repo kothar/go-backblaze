@@ -5,66 +5,69 @@ import (
 	"net/url"
 )
 
+// BucketType defines the security setting for a bucket
 type BucketType string
 
+// Buckets can be either public or private
 const (
 	AllPublic  BucketType = "allPublic"
 	AllPrivate BucketType = "allPrivate"
 )
 
+// Bucket provides access to the files stored in a B2 Bucket
 type Bucket struct {
-	Id         string `json:"bucketId"`
-	AccountId  string `json:"accountId"`
+	ID         string `json:"bucketId"`
+	AccountID  string `json:"accountId"`
 	Name       string `json:"bucketName"`
 	BucketType `json:"bucketType"`
 
-	uploadUrl          *url.URL
+	uploadURL          *url.URL
 	authorizationToken string
 	b2                 *B2
 }
 
 type bucketRequest struct {
-	Id string `json:"bucketId"`
+	ID string `json:"bucketId"`
 }
 
 type createBucketRequest struct {
-	AccountId  string `json:"accountId"`
+	AccountID  string `json:"accountId"`
 	BucketName string `json:"bucketName"`
 	BucketType `json:"bucketType"`
 }
 
 type deleteBucketRequest struct {
-	AccountId string `json:"accountId"`
-	BucketId  string `json:"bucketId"`
+	AccountID string `json:"accountId"`
+	BucketID  string `json:"bucketId"`
 }
 
 type updateBucketRequest struct {
-	Id         string `json:"bucketId"`
+	ID         string `json:"bucketId"`
 	BucketType `json:"bucketType"`
 }
 
-type getUploadUrlResponse struct {
-	BucketId           string `json:"bucketId"`
-	UploadUrl          string `json:"uploadUrl"`
+type getUploadURLResponse struct {
+	BucketID           string `json:"bucketId"`
+	UploadURL          string `json:"uploadUrl"`
 	AuthorizationToken string `json:"authorizationToken"`
 }
 
 type accountRequest struct {
-	Id string `json:"accountId"`
+	ID string `json:"accountId"`
 }
 
 type listBucketsResponse struct {
 	Buckets []*Bucket `json:"buckets"`
 }
 
-// Creates a new bucket. A bucket belongs to the account used to create it.
+// CreateBucket creates a new B2 Bucket in the authorized account.
 //
 // Buckets can be named. The name must be globally unique. No account can use
 // a bucket with the same name. Buckets are assigned a unique bucketId which
 // is used when uploading, downloading, or deleting files.
 func (b *B2) CreateBucket(bucketName string, bucketType BucketType) (*Bucket, error) {
 	request := &createBucketRequest{
-		AccountId:  b.AccountId,
+		AccountID:  b.AccountID,
 		BucketName: bucketName,
 		BucketType: bucketType,
 	}
@@ -77,12 +80,12 @@ func (b *B2) CreateBucket(bucketName string, bucketType BucketType) (*Bucket, er
 	return response, nil
 }
 
-// Deletes the bucket specified. Only buckets that contain no version of any
-// files can be deleted.
-func (b *B2) DeleteBucket(bucketId string) (*Bucket, error) {
+// deleteBucket removes the specified bucket from the authorized account. Only
+// buckets that contain no version of any files can be deleted.
+func (b *B2) deleteBucket(bucketID string) (*Bucket, error) {
 	request := &deleteBucketRequest{
-		AccountId: b.AccountId,
-		BucketId:  bucketId,
+		AccountID: b.AccountID,
+		BucketID:  bucketID,
 	}
 	response := &Bucket{b2: b}
 
@@ -93,18 +96,18 @@ func (b *B2) DeleteBucket(bucketId string) (*Bucket, error) {
 	return response, nil
 }
 
-// Deletes the bucket specified. Only buckets that contain no version of any
-// files can be deleted.
+// Delete removes removes the bucket from the authorized account. Only buckets
+// that contain no version of any files can be deleted.
 func (b *Bucket) Delete() error {
-	_, error := b.b2.DeleteBucket(b.Id)
+	_, error := b.b2.deleteBucket(b.ID)
 	return error
 }
 
-// Lists buckets associated with an account, in alphabetical order by bucket
-// ID.
+// ListBuckets lists buckets associated with an account, in alphabetical order
+// by bucket ID.
 func (b *B2) ListBuckets() ([]*Bucket, error) {
 	request := &accountRequest{
-		Id: b.AccountId,
+		ID: b.AccountID,
 	}
 	response := &listBucketsResponse{}
 
@@ -127,10 +130,10 @@ func (b *B2) ListBuckets() ([]*Bucket, error) {
 	return response.Buckets, nil
 }
 
-// Update an existing bucket.
-func (b *B2) UpdateBucket(bucketId string, bucketType BucketType) (*Bucket, error) {
+// updateBucket allows the bucket type to be changed
+func (b *B2) updateBucket(bucketID string, bucketType BucketType) (*Bucket, error) {
 	request := &updateBucketRequest{
-		Id:         bucketId,
+		ID:         bucketID,
 		BucketType: bucketType,
 	}
 	response := &Bucket{b2: b}
@@ -142,9 +145,14 @@ func (b *B2) UpdateBucket(bucketId string, bucketType BucketType) (*Bucket, erro
 	return response, nil
 }
 
-// Lookup a bucket for the currently authorized client
-func (b *B2) Bucket(bucketName string) (*Bucket, error) {
+// Update allows the bucket type to be changed
+func (b *Bucket) Update(bucketType BucketType) error {
+	_, error := b.b2.updateBucket(b.ID, bucketType)
+	return error
+}
 
+// Bucket looks up a bucket for the currently authorized client
+func (b *B2) Bucket(bucketName string) (*Bucket, error) {
 	buckets, err := b.ListBuckets()
 	if err != nil {
 		return nil, err
@@ -159,28 +167,28 @@ func (b *B2) Bucket(bucketName string) (*Bucket, error) {
 	return nil, nil
 }
 
-// Gets an URL to use for uploading files.
+// getUploadURL retrieves the URL to use for uploading files.
 //
 // When you upload a file to B2, you must call b2_get_upload_url first to get
 // the URL for uploading directly to the place where the file will be stored.
-func (b *Bucket) GetUploadUrl() (*url.URL, error) {
-	if b.uploadUrl == nil {
+func (b *Bucket) getUploadURL() (*url.URL, error) {
+	if b.uploadURL == nil {
 		request := &bucketRequest{
-			Id: b.Id,
+			ID: b.ID,
 		}
 
-		response := &getUploadUrlResponse{}
+		response := &getUploadURLResponse{}
 		if err := b.b2.apiRequest("b2_get_upload_url", request, response); err != nil {
 			return nil, err
 		}
 
 		// Set bucket upload URL
-		url, err := url.Parse(response.UploadUrl)
+		url, err := url.Parse(response.UploadURL)
 		if err != nil {
 			return nil, err
 		}
-		b.uploadUrl = url
+		b.uploadURL = url
 		b.authorizationToken = response.AuthorizationToken
 	}
-	return b.uploadUrl, nil
+	return b.uploadURL, nil
 }

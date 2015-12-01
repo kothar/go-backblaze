@@ -15,6 +15,8 @@ import (
 
 // TODO support directories
 // TODO support replacing all previous versions
+
+// Put is a command
 type Put struct {
 	Meta map[string]string `long:"meta" description:"Assign metadata to uploaded files"`
 }
@@ -25,6 +27,7 @@ func init() {
 		&Put{})
 }
 
+// Execute the put command
 func (o *Put) Execute(args []string) error {
 	client, err := Client()
 	if err != nil {

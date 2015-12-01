@@ -7,9 +7,9 @@ import (
 	"gopkg.in/kothar/go-backblaze.v0"
 )
 
-func ExampleB2(accountId, applicationKey string) *backblaze.B2 {
+func ExampleB2(accountID, applicationKey string) *backblaze.B2 {
 	b2, _ := backblaze.NewB2(backblaze.Credentials{
-		AccountId:      accountId,
+		AccountID:      accountID,
 		ApplicationKey: applicationKey,
 	})
 	return b2

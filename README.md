@@ -15,8 +15,8 @@ import "gopkg.in/kothar/go-backblaze.v0"
 Create an API client
 ~~~
 b2, _ := backblaze.NewB2(backblaze.Credentials{
-	AccountId:      accountId,
-	ApplicationKey: applicationKey,
+  AccountID:      accountID,
+  ApplicationKey: applicationKey,
 })
 ~~~
 

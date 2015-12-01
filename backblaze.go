@@ -1,4 +1,4 @@
-// Backblaze B2 API for Golang
+// Package backblaze B2 API for Golang
 package backblaze // import "gopkg.in/kothar/go-backblaze.v0"
 
 import (
@@ -16,11 +16,19 @@ const (
 	v1     = "/b2api/v1/"
 )
 
+// Credentials are the identification required by the Backblaze B2 API
+//
+// The account ID is a 12-digit hex number that you can get from
+// your account page on backblaze.com.
+//
+// The application key is a 40-digit hex number that you can get from
+// your account page on backblaze.com.
 type Credentials struct {
-	AccountId      string
+	AccountID      string
 	ApplicationKey string
 }
 
+// B2 implements a B2 API client
 type B2 struct {
 	Credentials
 
@@ -29,11 +37,14 @@ type B2 struct {
 
 	// State
 	authorizationToken string
-	apiUrl             string
-	downloadUrl        string
+	apiEndpoint        string
+	downloadURL        string
 	httpClient         http.Client
 }
 
+// B2Error encapsulates an error message returned by the B2 API.
+//
+// Failures to connect to the B2 servers, and networking problems in general can cause errors
 type B2Error struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
@@ -45,13 +56,13 @@ func (e *B2Error) Error() string {
 }
 
 type authorizeAccountResponse struct {
-	AccountId          string `json:"accountId"`
-	ApiUrl             string `json:"apiUrl"`
+	AccountID          string `json:"accountId"`
+	APIEndpoint        string `json:"apiUrl"`
 	AuthorizationToken string `json:"authorizationToken"`
-	DownloadUrl        string `json:"downloadUrl"`
+	DownloadURL        string `json:"downloadUrl"`
 }
 
-// Creates a new Client for accessing the B2 API.
+// NewB2 creates a new Client for accessing the B2 API.
 // The AuthorizeAccount method will be called immediately.
 func NewB2(creds Credentials) (*B2, error) {
 	c := &B2{
@@ -66,15 +77,13 @@ func NewB2(creds Credentials) (*B2, error) {
 	return c, nil
 }
 
-// Used to log in to the B2 API. Returns an authorization token that can be
-// used for account-level operations, and a URL that should be used as the
-// base URL for subsequent API calls.
+// AuthorizeAccount is used to log in to the B2 API.
 func (c *B2) AuthorizeAccount() error {
 	req, err := http.NewRequest("GET", b2Host+v1+"b2_authorize_account", nil)
 	if err != nil {
 		return err
 	}
-	req.SetBasicAuth(c.AccountId, c.ApplicationKey)
+	req.SetBasicAuth(c.AccountID, c.ApplicationKey)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -89,8 +98,8 @@ func (c *B2) AuthorizeAccount() error {
 
 	// Store token
 	c.authorizationToken = authResponse.AuthorizationToken
-	c.downloadUrl = authResponse.DownloadUrl
-	c.apiUrl = authResponse.ApiUrl
+	c.downloadURL = authResponse.DownloadURL
+	c.apiEndpoint = authResponse.APIEndpoint
 
 	return nil
 }
@@ -186,7 +195,7 @@ func (c *B2) apiRequest(apiMethod string, request interface{}, response interfac
 	if err != nil {
 		return err
 	}
-	resp, err := c.post(c.apiUrl+v1+apiMethod, bytes.NewReader(body))
+	resp, err := c.post(c.apiEndpoint+v1+apiMethod, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
