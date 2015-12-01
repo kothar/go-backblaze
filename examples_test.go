@@ -5,25 +5,28 @@ import (
 	"path/filepath"
 )
 
-func ExampleB2(accountID, applicationKey string) *B2 {
-	b2, _ := NewB2(Credentials{
-		AccountID:      accountID,
-		ApplicationKey: applicationKey,
+func ExampleB2() {
+	NewB2(Credentials{
+		AccountID:      "", // Obtained from your B2 account page.
+		ApplicationKey: "", // Obtained from your B2 account page.
 	})
-	return b2
 }
 
-func ExampleBucket(b2 *B2) *Bucket {
-	bucket, _ := b2.CreateBucket("test_bucket", AllPrivate)
-	return bucket
+func ExampleBucket() {
+	var b2 B2
+	// ...
+
+	b2.CreateBucket("test_bucket", AllPrivate)
 }
 
-func ExampleBucketUploadFile(bucket *Bucket, path string) *File {
+func ExampleBucket_UploadFile() {
+	var bucket Bucket
+	// ...
+
+	path := "/path/to/file"
 	reader, _ := os.Open(path)
 	name := filepath.Base(path)
 	metadata := make(map[string]string)
 
-	file, _ := bucket.UploadFile(name, metadata, reader)
-
-	return file
+	bucket.UploadFile(name, metadata, reader)
 }
