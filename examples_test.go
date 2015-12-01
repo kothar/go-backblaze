@@ -3,24 +3,22 @@ package backblaze
 import (
 	"os"
 	"path/filepath"
-
-	"gopkg.in/kothar/go-backblaze.v0"
 )
 
-func ExampleB2(accountID, applicationKey string) *backblaze.B2 {
-	b2, _ := backblaze.NewB2(backblaze.Credentials{
+func ExampleB2(accountID, applicationKey string) *B2 {
+	b2, _ := NewB2(Credentials{
 		AccountID:      accountID,
 		ApplicationKey: applicationKey,
 	})
 	return b2
 }
 
-func ExampleBucket(b2 *backblaze.B2) *backblaze.Bucket {
-	bucket, _ := b2.CreateBucket("test_bucket", backblaze.AllPrivate)
+func ExampleBucket(b2 *B2) *Bucket {
+	bucket, _ := b2.CreateBucket("test_bucket", AllPrivate)
 	return bucket
 }
 
-func ExampleBucketUploadFile(bucket *backblaze.Bucket, path string) *backblaze.File {
+func ExampleBucketUploadFile(bucket *Bucket, path string) *File {
 	reader, _ := os.Open(path)
 	name := filepath.Base(path)
 	metadata := make(map[string]string)
