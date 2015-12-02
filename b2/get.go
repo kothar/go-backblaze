@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/dustin/go-humanize"
 	"github.com/gosuri/uiprogress"
 	"github.com/gosuri/uiprogress/util/strutil"
 
@@ -116,11 +117,11 @@ func download(fileInfo *backblaze.File, reader io.ReadCloser, path string) error
 	if opts.Verbose {
 		bar := uiprogress.AddBar(int(fileInfo.ContentLength))
 		bar.AppendFunc(func(b *uiprogress.Bar) string {
-			speed := (float32(b.Current()) / 1024) / float32(b.TimeElapsed().Seconds())
-			return fmt.Sprintf("%7.2f KB/s", speed)
+			speed := uint64(float64(b.Current()) / b.TimeElapsed().Seconds())
+			return humanize.IBytes(speed) + "/sec"
 		})
 		bar.AppendCompleted()
-		bar.PrependFunc(func(b *uiprogress.Bar) string { return fmt.Sprintf("%10d", b.Total) })
+		bar.PrependFunc(func(b *uiprogress.Bar) string { return fmt.Sprintf("%10s", humanize.IBytes(uint64(b.Total))) })
 		bar.PrependFunc(func(b *uiprogress.Bar) string { return strutil.Resize(fileInfo.Name, 50) })
 		bar.Width = 20
 

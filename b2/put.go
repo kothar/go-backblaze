@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/dustin/go-humanize"
 	"github.com/gosuri/uiprogress"
 	"github.com/gosuri/uiprogress/util/strutil"
 
@@ -93,11 +94,11 @@ func upload(bucket *backblaze.Bucket, file string, meta map[string]string) (*bac
 	if opts.Verbose {
 		bar := uiprogress.AddBar(int(stat.Size()))
 		bar.AppendFunc(func(b *uiprogress.Bar) string {
-			speed := (float32(b.Current()) / 1024) / float32(b.TimeElapsed().Seconds())
-			return fmt.Sprintf("%7.2f KB/s", speed)
+			speed := uint64(float64(b.Current()) / b.TimeElapsed().Seconds())
+			return humanize.IBytes(speed) + "/sec"
 		})
 		bar.AppendCompleted()
-		bar.PrependFunc(func(b *uiprogress.Bar) string { return fmt.Sprintf("%10d", b.Total) })
+		bar.PrependFunc(func(b *uiprogress.Bar) string { return fmt.Sprintf("%10s", humanize.IBytes(uint64(b.Total))) })
 		bar.PrependFunc(func(b *uiprogress.Bar) string { return strutil.Resize(file, 50) })
 		bar.Width = 20
 
