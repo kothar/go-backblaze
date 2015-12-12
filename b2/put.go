@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/dustin/go-humanize"
 	"github.com/gosuri/uiprogress"
@@ -93,8 +94,14 @@ func upload(bucket *backblaze.Bucket, file string, meta map[string]string) (*bac
 	var r io.Reader = reader
 	if opts.Verbose {
 		bar := uiprogress.AddBar(int(stat.Size()))
+		start := time.Now()
+		elapsed := time.Duration(1)
 		bar.AppendFunc(func(b *uiprogress.Bar) string {
-			speed := uint64(float64(b.Current()) / b.TimeElapsed().Seconds())
+			// elapsed := b.TimeElapsed()
+			if b.Current() < b.Total {
+				elapsed = time.Now().Sub(start)
+			}
+			speed := uint64(float64(b.Current()) / elapsed.Seconds())
 			return humanize.IBytes(speed) + "/sec"
 		})
 		bar.AppendCompleted()
