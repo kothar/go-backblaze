@@ -24,7 +24,8 @@ import (
 
 // Get is a command
 type Get struct {
-	Threads int `short:"j" long:"threads" default:"5" description:"Maximum simultaneous downloads to process"`
+	Threads int    `short:"j" long:"threads" default:"5" description:"Maximum simultaneous downloads to process"`
+	Output  string `short:"o" long:"output" default:"." description:"Output file name or directory"`
 }
 
 func init() {
@@ -53,6 +54,30 @@ func (o *Get) Execute(args []string) error {
 	group := sync.WaitGroup{}
 	var downloadError error
 
+	outDir := "."
+	outName := ""
+
+	info, err := os.Stat(o.Output)
+	if err == nil {
+		if info.IsDir() {
+			outDir = o.Output
+		} else if len(args) > 1 {
+			return errors.New("Single output file specified for multiple targets: " + o.Output)
+		}
+	} else if os.IsNotExist(err) {
+		parent := filepath.Dir(o.Output)
+		info, err := os.Stat(parent)
+		if os.IsNotExist(err) || !info.IsDir() {
+			return errors.New("Directory does not exist: " + parent)
+		}
+		if len(args) > 1 {
+			return errors.New("Single output file specified for multiple targets: " + o.Output)
+		}
+		outName = o.Output
+	} else {
+		return err
+	}
+
 	for _, file := range args {
 		// TODO handle wildcards
 
@@ -71,6 +96,11 @@ func (o *Get) Execute(args []string) error {
 
 		// Start next parallel download
 		group.Add(1)
+		name := file
+		if outName != "" {
+			name = outName
+		}
+		path := filepath.Join(outDir, name)
 		go func(fileInfo *backblaze.File, reader io.ReadCloser, path string) {
 			err := download(fileInfo, reader, path)
 			if err != nil {
@@ -81,7 +111,7 @@ func (o *Get) Execute(args []string) error {
 			// Allow next entry into pool
 			group.Done()
 			<-pool
-		}(fileInfo, reader, file)
+		}(fileInfo, reader, path)
 	}
 
 	group.Wait()
