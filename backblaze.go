@@ -104,6 +104,12 @@ func (c *B2) AuthorizeAccount() error {
 	return nil
 }
 
+// DownloadURL returns the URL prefix needed to construct download links.
+// Bucket.FileURL will costruct a full URL for given file names.
+func (c *B2) DownloadURL() string {
+	return c.downloadURL
+}
+
 // Create an authorized request using the client's credentials
 func (c *B2) authRequest(method, path string, body io.Reader) (*http.Request, error) {
 	req, err := http.NewRequest(method, path, body)

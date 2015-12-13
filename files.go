@@ -227,11 +227,17 @@ func (b *B2) DownloadFileByID(fileID string) (*File, io.ReadCloser, error) {
 	return b.downloadFile(resp)
 }
 
+// FileURL returns a URL which may be used to dowload the laterst version of a file.
+// This will only work for public URLs unless the correct authorization header is provided.
+func (b *Bucket) FileURL(fileName string) string {
+	return b.b2.downloadURL + "/file/" + b.Name + "/" + fileName
+}
+
 // DownloadFileByName Downloads one file by providing the name of the bucket and the name of the
 // file.
 func (b *Bucket) DownloadFileByName(fileName string) (*File, io.ReadCloser, error) {
 
-	url := b.b2.downloadURL + "/file/" + b.Name + "/" + fileName
+	url := b.FileURL(fileName)
 
 	resp, err := b.b2.get(url)
 	if err != nil {
