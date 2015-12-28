@@ -4,8 +4,6 @@ package backblaze // import "gopkg.in/kothar/go-backblaze.v0"
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -32,6 +30,9 @@ type Credentials struct {
 type B2 struct {
 	Credentials
 
+	// If true, don't retry requests if authorization has expired
+	NoRetry bool
+
 	// If true, display debugging information about API calls
 	Debug bool
 
@@ -51,8 +52,14 @@ type B2Error struct {
 	Status  int    `json:"status"`
 }
 
-func (e *B2Error) Error() string {
+func (e B2Error) Error() string {
 	return e.Code + ": " + e.Message
+}
+
+// IsUnauthorized returns true if this error represents
+// an authorization error (401 status code)
+func (e *B2Error) IsUnauthorized() bool {
+	return e.Status == 401
 }
 
 type authorizeAccountResponse struct {
@@ -91,8 +98,7 @@ func (c *B2) AuthorizeAccount() error {
 	}
 
 	authResponse := &authorizeAccountResponse{}
-	err = c.parseResponse(resp, authResponse)
-	if err != nil {
+	if err = c.parseResponse(resp, authResponse); err != nil {
 		return err
 	}
 
@@ -106,20 +112,30 @@ func (c *B2) AuthorizeAccount() error {
 
 // DownloadURL returns the URL prefix needed to construct download links.
 // Bucket.FileURL will costruct a full URL for given file names.
-func (c *B2) DownloadURL() string {
-	return c.downloadURL
+func (c *B2) DownloadURL() (string, error) {
+	if c.downloadURL == "" {
+		if err := c.AuthorizeAccount(); err != nil {
+			return "", err
+		}
+	}
+	return c.downloadURL, nil
 }
 
 // Create an authorized request using the client's credentials
 func (c *B2) authRequest(method, path string, body io.Reader) (*http.Request, error) {
+
+	if c.authorizationToken == "" {
+		if err := c.AuthorizeAccount(); err != nil {
+			return nil, err
+		}
+	}
+
 	req, err := http.NewRequest(method, path, body)
 	if err != nil {
 		return nil, err
 	}
 
-	if c.authorizationToken != "" {
-		req.Header.Add("Authorization", c.authorizationToken)
-	}
+	req.Header.Add("Authorization", c.authorizationToken)
 
 	if c.Debug {
 		println("Request: " + req.URL.String())
@@ -161,7 +177,9 @@ func (c *B2) parseError(resp *http.Response) error {
 	}
 
 	b2err := &B2Error{}
-	json.Unmarshal(body, b2err)
+	if json.Unmarshal(body, b2err) != nil {
+		return nil
+	}
 	return b2err
 }
 
@@ -172,15 +190,22 @@ func (c *B2) parseResponse(resp *http.Response, result interface{}) error {
 	// Check response code
 	switch resp.StatusCode {
 	case 200: // Response is OK
-	case 400: // BAD_REQUEST
-		return c.parseError(resp)
 	case 401:
-		return errors.New("UNAUTHORIZED - The account ID is wrong, the account does not have B2 enabled, or the application key is not valid")
+		c.authorizationToken = ""
+		return &B2Error{
+			Code:    "UNAUTHORIZED",
+			Message: "The account ID is wrong, the account does not have B2 enabled, or the application key is not valid",
+			Status:  resp.StatusCode,
+		}
 	default:
 		if err := c.parseError(resp); err != nil {
 			return err
 		}
-		return fmt.Errorf("Unrecognised status code: %d", resp.StatusCode)
+		return &B2Error{
+			Code:    "UNKNOWN",
+			Message: "Unrecognised status code",
+			Status:  resp.StatusCode,
+		}
 	}
 
 	body, err := ioutil.ReadAll(resp.Body)
@@ -207,9 +232,15 @@ func (c *B2) apiRequest(apiMethod string, request interface{}, response interfac
 	}
 
 	err = c.parseResponse(resp, response)
-	if err != nil {
-		return err
-	}
 
-	return nil
+	// Retry after authorization error
+	if b2err, ok := err.(B2Error); ok {
+		if b2err.IsUnauthorized() && !c.NoRetry {
+			resp, err = c.post(c.apiEndpoint+v1+apiMethod, bytes.NewReader(body))
+			if err == nil {
+				err = c.parseResponse(resp, response)
+			}
+		}
+	}
+	return err
 }
