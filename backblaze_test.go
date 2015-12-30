@@ -30,15 +30,13 @@ func prepareResponses(responses []response) (*http.Client, *httptest.Server) {
 
 		w.WriteHeader(next.code)
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintln(w, toJSON(next.body))
+		fmt.Fprint(w, toJSON(next.body))
 	}))
 
 	// Make a transport that reroutes all traffic to the example server
 	transport := &http.Transport{
 		Proxy: func(req *http.Request) (*url.URL, error) {
-			u, err := url.Parse(server.URL + req.URL.Path)
-			fmt.Printf("Request URL: %s\n", req.URL)
-			return u, err
+			return url.Parse(server.URL + req.URL.Path)
 		},
 	}
 
@@ -86,7 +84,7 @@ func TestAuth(T *testing.T) {
 		},
 		Debug:      true,
 		host:       server.URL,
-		httpClient: client,
+		httpClient: *client,
 	}
 
 	if err := b2.AuthorizeAccount(); err != nil {
@@ -103,54 +101,6 @@ func TestAuth(T *testing.T) {
 
 	if b2.downloadURL != downloadURL {
 		T.Errorf("Download URL not set correctly: expecting %q, saw %q", downloadURL, b2.downloadURL)
-	}
-}
-
-func TestListBuckets(T *testing.T) {
-
-	accountID := "test"
-	bucketID := "bucketid"
-
-	client, server := prepareResponses([]response{
-		{200, authorizeAccountResponse{
-			AccountID:          accountID,
-			APIEndpoint:        "http://api.url",
-			AuthorizationToken: "testToken",
-			DownloadURL:        "http://download.url",
-		}},
-		{200, listBucketsResponse{
-			Buckets: []*Bucket{
-				&Bucket{
-					ID:         bucketID,
-					AccountID:  accountID,
-					Name:       "testbucket",
-					BucketType: AllPrivate,
-				},
-			},
-		}},
-	})
-	defer server.Close()
-
-	b2 := &B2{
-		Credentials: Credentials{
-			AccountID:      accountID,
-			ApplicationKey: "test",
-		},
-		Debug:      true,
-		httpClient: client,
-		host:       server.URL,
-	}
-
-	buckets, err := b2.ListBuckets()
-	if err != nil {
-		T.Fatal(err)
-	}
-
-	if len(buckets) != 1 {
-		T.Errorf("Expected 1 bucket, received %d", len(buckets))
-	}
-	if buckets[0].ID != bucketID {
-		T.Errorf("Bucket ID does not match: expected %q, saw %q", bucketID, buckets[0].ID)
 	}
 }
 
@@ -197,7 +147,7 @@ func TestReAuth(T *testing.T) {
 			ApplicationKey: "test",
 		},
 		Debug:      true,
-		httpClient: client,
+		httpClient: *client,
 		host:       server.URL,
 	}
 

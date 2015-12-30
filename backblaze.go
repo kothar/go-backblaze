@@ -42,7 +42,7 @@ type B2 struct {
 	apiEndpoint        string
 	downloadURL        string
 	authorizationToken string
-	httpClient         *http.Client
+	httpClient         http.Client
 }
 
 // B2Error encapsulates an error message returned by the B2 API.
@@ -81,7 +81,6 @@ type authorizeAccountResponse struct {
 func NewB2(creds Credentials) (*B2, error) {
 	c := &B2{
 		Credentials: creds,
-		httpClient:  &http.Client{},
 	}
 
 	// Authorize account
@@ -200,7 +199,7 @@ func (c *B2) parseResponse(resp *http.Response, result interface{}) error {
 	}
 
 	if c.Debug {
-		println("Response: " + string(body))
+		log.Printf("Response: %s", body)
 	}
 
 	// Check response code
@@ -232,6 +231,10 @@ func (c *B2) apiRequest(apiMethod string, request interface{}, response interfac
 	body, err := json.Marshal(request)
 	if err != nil {
 		return err
+	}
+	if c.Debug {
+		log.Println("----")
+		log.Printf("apiRequest: %s %s", apiMethod, body)
 	}
 
 	// Check if we have a valid API endpoint

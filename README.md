@@ -35,6 +35,12 @@ metadata := make(map[string]string)
 file, _ := bucket.UploadFile(name, metadata, reader)
 ~~~
 
+All API methods except `B2.AuthorizeAccount` and `Bucket.UploadHashedFile` will
+retry once if authorization fails, which allows the operation to proceed if the current
+authorization token has expired.
+
+To disable this behaviour, set `B2.NoRetry` to `true`
+
 ## b2 command line client
 
 A test applicaiton has been implemented using this package, and can be found in the /b2 directory.
