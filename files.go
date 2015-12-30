@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
@@ -248,20 +249,30 @@ func (b *Bucket) DownloadFileByName(fileName string) (*File, io.ReadCloser, erro
 }
 
 func (b *B2) downloadFile(resp *http.Response) (*File, io.ReadCloser, error) {
+	success := false
+	defer func() {
+		if !success {
+			resp.Body.Close()
+		}
+	}()
+
 	switch resp.StatusCode {
 	case 200:
 	default:
-		if err := b.parseError(resp); err != nil {
-			resp.Body.Close()
+		body, err := ioutil.ReadAll(resp.Body)
+
+		if err != nil {
 			return nil, nil, err
 		}
-		resp.Body.Close()
+
+		if err := b.parseError(body); err != nil {
+			return nil, nil, err
+		}
 		return nil, nil, fmt.Errorf("Unrecognised status code: %d", resp.StatusCode)
 	}
 
 	name, err := url.QueryUnescape(resp.Header.Get("X-Bz-File-Name"))
 	if err != nil {
-		resp.Body.Close()
 		return nil, nil, err
 	}
 
@@ -275,7 +286,6 @@ func (b *B2) downloadFile(resp *http.Response) (*File, io.ReadCloser, error) {
 
 	size, err := strconv.ParseInt(resp.Header.Get("Content-Length"), 10, 64)
 	if err != nil {
-		resp.Body.Close()
 		return nil, nil, err
 	}
 	file.ContentLength = size
@@ -297,6 +307,7 @@ func (b *B2) downloadFile(resp *http.Response) (*File, io.ReadCloser, error) {
 		}
 	}
 
+	success = true // Don't close the response body
 	return file, resp.Body, nil
 }
 

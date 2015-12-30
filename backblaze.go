@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"io/ioutil"
+	"log"
 	"net/http"
 )
 
@@ -37,10 +38,11 @@ type B2 struct {
 	Debug bool
 
 	// State
-	authorizationToken string
+	host               string
 	apiEndpoint        string
 	downloadURL        string
-	httpClient         http.Client
+	authorizationToken string
+	httpClient         *http.Client
 }
 
 // B2Error encapsulates an error message returned by the B2 API.
@@ -56,10 +58,15 @@ func (e B2Error) Error() string {
 	return e.Code + ": " + e.Message
 }
 
-// IsUnauthorized returns true if this error represents
-// an authorization error (401 status code)
-func (e *B2Error) IsUnauthorized() bool {
-	return e.Status == 401
+// IsFatal returns true if this error represents
+// an error which can't be recovered from by retrying
+func (e *B2Error) IsFatal() bool {
+	switch e.Status {
+	case 401:
+		return false
+	default:
+		return true
+	}
 }
 
 type authorizeAccountResponse struct {
@@ -74,6 +81,7 @@ type authorizeAccountResponse struct {
 func NewB2(creds Credentials) (*B2, error) {
 	c := &B2{
 		Credentials: creds,
+		httpClient:  &http.Client{},
 	}
 
 	// Authorize account
@@ -86,7 +94,11 @@ func NewB2(creds Credentials) (*B2, error) {
 
 // AuthorizeAccount is used to log in to the B2 API.
 func (c *B2) AuthorizeAccount() error {
-	req, err := http.NewRequest("GET", b2Host+v1+"b2_authorize_account", nil)
+	if c.host == "" {
+		c.host = b2Host
+	}
+
+	req, err := http.NewRequest("GET", c.host+v1+"b2_authorize_account", nil)
 	if err != nil {
 		return err
 	}
@@ -125,6 +137,9 @@ func (c *B2) DownloadURL() (string, error) {
 func (c *B2) authRequest(method, path string, body io.Reader) (*http.Request, error) {
 
 	if c.authorizationToken == "" {
+		if c.Debug {
+			log.Println("No valid authorization token, re-authorizing client")
+		}
 		if err := c.AuthorizeAccount(); err != nil {
 			return nil, err
 		}
@@ -138,7 +153,7 @@ func (c *B2) authRequest(method, path string, body io.Reader) (*http.Request, er
 	req.Header.Add("Authorization", c.authorizationToken)
 
 	if c.Debug {
-		println("Request: " + req.URL.String())
+		log.Printf("authRequest: %s %s\n", method, req.URL)
 	}
 
 	return req, nil
@@ -166,16 +181,7 @@ func (c *B2) post(path string, body io.Reader) (*http.Response, error) {
 
 // Looks for an error message in the response body and parses it into a
 // B2Error object
-func (c *B2) parseError(resp *http.Response) error {
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return err
-	}
-
-	if c.Debug {
-		println("Response: " + string(body))
-	}
-
+func (c *B2) parseError(body []byte) error {
 	b2err := &B2Error{}
 	if json.Unmarshal(body, b2err) != nil {
 		return nil
@@ -186,6 +192,16 @@ func (c *B2) parseError(resp *http.Response) error {
 // Attempts to parse a response body into the provided result struct
 func (c *B2) parseResponse(resp *http.Response, result interface{}) error {
 	defer resp.Body.Close()
+
+	// Read response body
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+
+	if c.Debug {
+		println("Response: " + string(body))
+	}
 
 	// Check response code
 	switch resp.StatusCode {
@@ -198,7 +214,7 @@ func (c *B2) parseResponse(resp *http.Response, result interface{}) error {
 			Status:  resp.StatusCode,
 		}
 	default:
-		if err := c.parseError(resp); err != nil {
+		if err := c.parseError(body); err != nil {
 			return err
 		}
 		return &B2Error{
@@ -206,15 +222,6 @@ func (c *B2) parseResponse(resp *http.Response, result interface{}) error {
 			Message: "Unrecognised status code",
 			Status:  resp.StatusCode,
 		}
-	}
-
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return err
-	}
-
-	if c.Debug {
-		println("Response: " + string(body))
 	}
 
 	return json.Unmarshal(body, result)
@@ -226,16 +233,31 @@ func (c *B2) apiRequest(apiMethod string, request interface{}, response interfac
 	if err != nil {
 		return err
 	}
+
+	// Check if we have a valid API endpoint
+	if c.apiEndpoint == "" {
+		if c.Debug {
+			log.Println("No valid apiEndpoint, re-authorizing client")
+		}
+		if err := c.AuthorizeAccount(); err != nil {
+			return err
+		}
+	}
+
+	// Post the API request
 	resp, err := c.post(c.apiEndpoint+v1+apiMethod, bytes.NewReader(body))
 	if err != nil {
+		if c.Debug {
+			log.Println("B2.post returned an error: ", err)
+		}
 		return err
 	}
 
 	err = c.parseResponse(resp, response)
 
-	// Retry after authorization error
-	if b2err, ok := err.(B2Error); ok {
-		if b2err.IsUnauthorized() && !c.NoRetry {
+	// Retry after non-fatal errors
+	if b2err, ok := err.(*B2Error); ok {
+		if !b2err.IsFatal() && !c.NoRetry {
 			resp, err = c.post(c.apiEndpoint+v1+apiMethod, bytes.NewReader(body))
 			if err == nil {
 				err = c.parseResponse(resp, response)

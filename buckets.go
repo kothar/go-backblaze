@@ -172,7 +172,7 @@ func (b *B2) Bucket(bucketName string) (*Bucket, error) {
 // When you upload a file to B2, you must call b2_get_upload_url first to get
 // the URL for uploading directly to the place where the file will be stored.
 func (b *Bucket) getUploadURL() (*url.URL, error) {
-	if b.uploadURL == nil {
+	if b.uploadURL == nil || b.authorizationToken == "" {
 		request := &bucketRequest{
 			ID: b.ID,
 		}
