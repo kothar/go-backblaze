@@ -51,9 +51,8 @@ func (o *Get) Execute(args []string) error {
 	}
 
 	uiprogress.Start()
-	pool := make(chan bool, o.Threads)
+	tasks := make(chan string, o.Threads)
 	group := sync.WaitGroup{}
-	var downloadError error
 
 	outDir := "."
 	outName := ""
@@ -82,45 +81,45 @@ func (o *Get) Execute(args []string) error {
 		return err
 	}
 
+	// Create workers
+	for i := 0; i < o.Threads; i++ {
+		group.Add(1)
+		go func() {
+			for file := range tasks {
+				fileInfo, reader, err := bucket.DownloadFileByName(file)
+				if err != nil {
+					fmt.Println(err)
+					// TODO terminate on errors
+				}
+
+				name := file
+				if outName != "" {
+					name = outName
+				}
+				path := filepath.Join(outDir, name)
+				err = download(fileInfo, reader, path, o)
+				if err != nil {
+					fmt.Println(err)
+					// TODO remove file if partially downloaded?
+				}
+
+				// TODO handle termination on error
+			}
+			group.Done()
+		}()
+
+	}
+
 	for _, file := range args {
 		// TODO handle wildcards
 
-		fileInfo, reader, err := bucket.DownloadFileByName(file)
-		if err != nil {
-			downloadError = err
-			break
-		}
-
-		// Get a ticket to process a download
-		pool <- true
-
-		if downloadError != nil {
-			break
-		}
-
-		// Start next parallel download
-		group.Add(1)
-		name := file
-		if outName != "" {
-			name = outName
-		}
-		path := filepath.Join(outDir, name)
-		go func(fileInfo *backblaze.File, reader io.ReadCloser, path string) {
-			err := download(fileInfo, reader, path, o)
-			if err != nil {
-				fmt.Println(err)
-				downloadError = err
-			}
-
-			// Allow next entry into pool
-			group.Done()
-			<-pool
-		}(fileInfo, reader, path)
+		tasks <- file
 	}
+	close(tasks)
 
 	group.Wait()
 
-	return downloadError
+	return nil
 }
 
 type progressWriter struct {
@@ -139,7 +138,6 @@ func download(fileInfo *backblaze.File, reader io.ReadCloser, path string, o *Ge
 
 	var writer = ioutil.Discard
 	if !o.Discard {
-		fmt.Printf("Downloading to: %s\n", path)
 		err := os.MkdirAll(filepath.Dir(path), 0777)
 		if err != nil {
 			return err
@@ -155,16 +153,25 @@ func download(fileInfo *backblaze.File, reader io.ReadCloser, path string, o *Ge
 
 	if opts.Verbose {
 		bar := uiprogress.AddBar(int(fileInfo.ContentLength))
-		start := time.Now()
-		elapsed := time.Duration(1)
-		bar.AppendFunc(func(b *uiprogress.Bar) string {
-			// elapsed := b.TimeElapsed()
-			if b.Current() < b.Total {
-				elapsed = time.Now().Sub(start)
-			}
-			speed := uint64(float64(b.Current()) / elapsed.Seconds())
-			return humanize.IBytes(speed) + "/sec"
-		})
+
+		if fileInfo.ContentLength > 1024*100 {
+			start := time.Now()
+			elapsed := time.Duration(1)
+			count := 0
+			bar.AppendFunc(func(b *uiprogress.Bar) string {
+				count++
+				if count < 2 {
+					return ""
+				}
+
+				// elapsed := b.TimeElapsed()
+				if b.Current() < b.Total {
+					elapsed = time.Now().Sub(start)
+				}
+				speed := uint64(float64(b.Current()) / elapsed.Seconds())
+				return humanize.IBytes(speed) + "/sec"
+			})
+		}
 		bar.AppendCompleted()
 		bar.PrependFunc(func(b *uiprogress.Bar) string { return fmt.Sprintf("%10s", humanize.IBytes(uint64(b.Total))) })
 		bar.PrependFunc(func(b *uiprogress.Bar) string { return strutil.Resize(fileInfo.Name, 50) })
