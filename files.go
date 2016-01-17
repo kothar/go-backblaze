@@ -156,8 +156,7 @@ func (b *Bucket) UploadFile(name string, meta map[string]string, file io.Reader)
 // some bytes. If the error type is B2Error and IsFatal returns false, you may retry the
 // upload and expect it to succeed eventually.
 func (b *Bucket) UploadHashedFile(name string, meta map[string]string, file io.Reader, sha1Hash string, contentLength int64) (*File, error) {
-
-	_, err := b.getUploadURL()
+	uploadURL, auth, err := b.internalGetUploadURL()
 	if err != nil {
 		return nil, err
 	}
@@ -169,11 +168,11 @@ func (b *Bucket) UploadHashedFile(name string, meta map[string]string, file io.R
 	}
 
 	// Create authorized request
-	req, err := http.NewRequest("POST", b.uploadURL.String(), file)
+	req, err := http.NewRequest("POST", uploadURL.String(), file)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Add("Authorization", b.authorizationToken)
+	req.Header.Add("Authorization", auth.AuthorizationToken)
 
 	// Set file metadata
 	req.ContentLength = contentLength
@@ -189,15 +188,15 @@ func (b *Bucket) UploadHashedFile(name string, meta map[string]string, file io.R
 
 	resp, err := b.b2.httpClient.Do(req)
 	if err != nil {
-		b.uploadURL = nil
-		b.authorizationToken = ""
+		auth.invalidate()
 		return nil, err
 	}
 
 	result := &File{}
-	if err := b.b2.parseResponse(resp, result); err != nil {
-		b.uploadURL = nil
-		b.authorizationToken = ""
+
+	// We are not dealing with the b2 client auth token in this case, hence the nil auth
+	if err := b.b2.parseResponse(resp, result, nil); err != nil {
+		auth.invalidate()
 		return nil, err
 	}
 
@@ -225,12 +224,6 @@ func (b *Bucket) GetFileInfo(fileID string) (*File, error) {
 // DownloadFileByID downloads a file from B2 using its unique ID
 func (c *B2) DownloadFileByID(fileID string) (*File, io.ReadCloser, error) {
 
-	if c.apiEndpoint == "" {
-		if err := c.AuthorizeAccount(); err != nil {
-			return nil, nil, err
-		}
-	}
-
 	request := &fileRequest{
 		ID: fileID,
 	}
@@ -239,71 +232,83 @@ func (c *B2) DownloadFileByID(fileID string) (*File, io.ReadCloser, error) {
 		return nil, nil, err
 	}
 
-	resp, err := c.post(c.apiEndpoint+v1+"b2_download_file_by_id", bytes.NewReader(requestBody))
-	if err != nil {
-		return nil, nil, err
-	}
-
-	f, body, err := c.downloadFile(resp)
+	f, body, err := c.tryDownloadFileByID(requestBody)
 
 	// Retry after non-fatal errors
 	if b2err, ok := err.(*B2Error); ok {
 		if !b2err.IsFatal() && !c.NoRetry {
-			resp, err = c.post(c.apiEndpoint+v1+"b2_download_file_by_id", bytes.NewReader(requestBody))
-			if err != nil {
-				return nil, nil, err
-			}
-			f, body, err = c.downloadFile(resp)
+			return c.tryDownloadFileByID(requestBody)
 		}
 	}
 	return f, body, err
 }
 
-// FileURL returns a URL which may be used to dowload the latest version of a file.
+func (c *B2) tryDownloadFileByID(requestBody []byte) (*File, io.ReadCloser, error) {
+	resp, auth, err := c.authPost("b2_download_file_by_id", bytes.NewReader(requestBody))
+	if err != nil {
+		return nil, nil, err
+	}
+	return c.downloadFile(resp, auth)
+}
+
+// FileURL returns a URL which may be used to download the latest version of a file.
 // This returned URL will only work for public buckets unless the correct authorization header is provided.
 func (b *Bucket) FileURL(fileName string) (string, error) {
-	if b.b2.downloadURL == "" {
-		if err := b.b2.AuthorizeAccount(); err != nil {
-			return "", err
+	fileURL, _, err := b.internalFileURL(fileName)
+	return fileURL, err
+}
+
+func (b *Bucket) internalFileURL(fileName string) (string, *authorizationState, error) {
+	b.b2.mutex.Lock()
+	defer b.b2.mutex.Unlock()
+
+	if !b.b2.auth.isValid() {
+		if err := b.b2.internalAuthorizeAccount(); err != nil {
+			return "", nil, err
 		}
 	}
-	return b.b2.downloadURL + "/file/" + b.Name + "/" + fileName, nil
+	return b.b2.auth.DownloadURL + "/file/" + b.Name + "/" + fileName, b.b2.auth, nil
 }
 
 // DownloadFileByName Downloads one file by providing the name of the bucket and the name of the
 // file.
 func (b *Bucket) DownloadFileByName(fileName string) (*File, io.ReadCloser, error) {
 
-	// Locate the file
-	url, err := b.FileURL(fileName)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// Make the download request
-	resp, err := b.b2.get(url)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// Handle the response
-	f, body, err := b.b2.downloadFile(resp)
+	f, body, err := b.tryDownloadFileByName(fileName)
 
 	// Retry after non-fatal errors
 	if b2err, ok := err.(*B2Error); ok {
 		if !b2err.IsFatal() && !b.b2.NoRetry {
-			resp, err = b.b2.get(url)
-			if err != nil {
-				return nil, nil, err
-			}
-
-			f, body, err = b.b2.downloadFile(resp)
+			return b.tryDownloadFileByName(fileName)
 		}
 	}
 	return f, body, err
 }
 
-func (c *B2) downloadFile(resp *http.Response) (*File, io.ReadCloser, error) {
+func (b *Bucket) tryDownloadFileByName(fileName string) (*File, io.ReadCloser, error) {
+	// Locate the file
+	fileURL, auth, err := b.internalFileURL(fileName)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Make the download request
+	req, err := http.NewRequest("GET", fileURL, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	req.Header.Add("Authorization", auth.AuthorizationToken)
+
+	resp, err := b.b2.httpClient.Do(req)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Handle the response
+	return b.b2.downloadFile(resp, auth)
+}
+
+func (c *B2) downloadFile(resp *http.Response, auth *authorizationState) (*File, io.ReadCloser, error) {
 	success := false
 	defer func() {
 		if !success {
@@ -314,7 +319,7 @@ func (c *B2) downloadFile(resp *http.Response) (*File, io.ReadCloser, error) {
 	switch resp.StatusCode {
 	case 200:
 	case 401:
-		c.authorizationToken = ""
+		auth.invalidate()
 		return nil, nil, &B2Error{
 			Code:    "UNAUTHORIZED",
 			Message: "The account ID is wrong, the account does not have B2 enabled, or the application key is not valid",

@@ -38,7 +38,7 @@ func TestDownloadReAuth(T *testing.T) {
 			AccountID:      accountID,
 			ApplicationKey: "test",
 		},
-		Debug:      true,
+		Debug:      testing.Verbose(),
 		httpClient: *client,
 		host:       server.URL,
 	}
@@ -57,7 +57,7 @@ func TestDownloadReAuth(T *testing.T) {
 		}
 	}
 
-	if b2.authorizationToken != token2 {
-		T.Errorf("Expected auth token after re-auth to be %q, saw %q", token2, b2.authorizationToken)
+	if b2.auth.AuthorizationToken != token2 {
+		T.Errorf("Expected auth token after re-auth to be %q, saw %q", token2, b2.auth.AuthorizationToken)
 	}
 }

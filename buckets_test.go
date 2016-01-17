@@ -34,7 +34,7 @@ func TestListBuckets(T *testing.T) {
 			AccountID:      accountID,
 			ApplicationKey: "test",
 		},
-		Debug:      true,
+		Debug:      testing.Verbose(),
 		httpClient: *client,
 		host:       server.URL,
 	}

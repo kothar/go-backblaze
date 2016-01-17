@@ -82,7 +82,7 @@ func TestAuth(T *testing.T) {
 			AccountID:      accountID,
 			ApplicationKey: "test",
 		},
-		Debug:      true,
+		Debug:      testing.Verbose(),
 		host:       server.URL,
 		httpClient: *client,
 	}
@@ -91,16 +91,16 @@ func TestAuth(T *testing.T) {
 		T.Fatal(err)
 	}
 
-	if b2.authorizationToken != token {
-		T.Errorf("Auth token not set correctly: expecting %q, saw %q", token, b2.authorizationToken)
+	if b2.auth.AuthorizationToken != token {
+		T.Errorf("Auth token not set correctly: expecting %q, saw %q", token, b2.auth.AuthorizationToken)
 	}
 
-	if b2.apiEndpoint != apiURL {
-		T.Errorf("API Endpoint not set correctly: expecting %q, saw %q", apiURL, b2.apiEndpoint)
+	if b2.auth.APIEndpoint != apiURL {
+		T.Errorf("API Endpoint not set correctly: expecting %q, saw %q", apiURL, b2.auth.APIEndpoint)
 	}
 
-	if b2.downloadURL != downloadURL {
-		T.Errorf("Download URL not set correctly: expecting %q, saw %q", downloadURL, b2.downloadURL)
+	if b2.auth.DownloadURL != downloadURL {
+		T.Errorf("Download URL not set correctly: expecting %q, saw %q", downloadURL, b2.auth.DownloadURL)
 	}
 }
 
@@ -146,7 +146,7 @@ func TestReAuth(T *testing.T) {
 			AccountID:      accountID,
 			ApplicationKey: "test",
 		},
-		Debug:      true,
+		Debug:      testing.Verbose(),
 		httpClient: *client,
 		host:       server.URL,
 	}
@@ -156,7 +156,7 @@ func TestReAuth(T *testing.T) {
 		T.Fatal(err)
 	}
 
-	if b2.authorizationToken != token2 {
-		T.Errorf("Expected auth token after re-auth to be %q, saw %q", token2, b2.authorizationToken)
+	if b2.auth.AuthorizationToken != token2 {
+		T.Errorf("Expected auth token after re-auth to be %q, saw %q", token2, b2.auth.AuthorizationToken)
 	}
 }

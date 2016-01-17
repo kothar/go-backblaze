@@ -3,6 +3,7 @@ package backblaze
 import (
 	"errors"
 	"net/url"
+	"sync"
 )
 
 // BucketType defines the security setting for a bucket
@@ -21,9 +22,9 @@ type Bucket struct {
 	Name       string `json:"bucketName"`
 	BucketType `json:"bucketType"`
 
-	uploadURL          *url.URL
-	authorizationToken string
-	b2                 *B2
+	mutex sync.Mutex
+	auth  *bucketAuthorizationState
+	b2    *B2
 }
 
 type bucketRequest struct {
@@ -50,6 +51,38 @@ type getUploadURLResponse struct {
 	BucketID           string `json:"bucketId"`
 	UploadURL          string `json:"uploadUrl"`
 	AuthorizationToken string `json:"authorizationToken"`
+}
+
+type bucketAuthorizationState struct {
+	sync.Mutex
+	*getUploadURLResponse
+
+	valid     bool
+	uploadURL *url.URL
+}
+
+func (a *bucketAuthorizationState) isValid() (bool, *url.URL) {
+	if a == nil {
+		return false, nil
+	}
+
+	a.Lock()
+	defer a.Unlock()
+
+	return a.valid, a.uploadURL
+}
+
+func (a *bucketAuthorizationState) invalidate() {
+	if a == nil {
+		return
+	}
+
+	a.Lock()
+	defer a.Unlock()
+
+	a.valid = false
+	a.getUploadURLResponse = nil
+	a.uploadURL = nil
 }
 
 type accountRequest struct {
@@ -167,28 +200,42 @@ func (b *B2) Bucket(bucketName string) (*Bucket, error) {
 	return nil, nil
 }
 
-// getUploadURL retrieves the URL to use for uploading files.
+// GetUploadURL retrieves the URL to use for uploading files.
 //
 // When you upload a file to B2, you must call b2_get_upload_url first to get
 // the URL for uploading directly to the place where the file will be stored.
-func (b *Bucket) getUploadURL() (*url.URL, error) {
-	if b.uploadURL == nil || b.authorizationToken == "" {
-		request := &bucketRequest{
-			ID: b.ID,
-		}
+func (b *Bucket) GetUploadURL() (*url.URL, error) {
+	uploadURL, _, err := b.internalGetUploadURL()
+	return uploadURL, err
+}
 
-		response := &getUploadURLResponse{}
-		if err := b.b2.apiRequest("b2_get_upload_url", request, response); err != nil {
-			return nil, err
-		}
+func (b *Bucket) internalGetUploadURL() (*url.URL, *bucketAuthorizationState, error) {
+	b.mutex.Lock()
+	defer b.mutex.Unlock()
 
-		// Set bucket upload URL
-		url, err := url.Parse(response.UploadURL)
-		if err != nil {
-			return nil, err
-		}
-		b.uploadURL = url
-		b.authorizationToken = response.AuthorizationToken
+	if valid, uploadURL := b.auth.isValid(); valid {
+		return uploadURL, b.auth, nil
 	}
-	return b.uploadURL, nil
+
+	request := &bucketRequest{
+		ID: b.ID,
+	}
+
+	response := &getUploadURLResponse{}
+	if err := b.b2.apiRequest("b2_get_upload_url", request, response); err != nil {
+		return nil, nil, err
+	}
+
+	// Set bucket auth
+	uploadURL, err := url.Parse(response.UploadURL)
+	if err != nil {
+		return nil, nil, err
+	}
+	b.auth = &bucketAuthorizationState{
+		getUploadURLResponse: response,
+		uploadURL:            uploadURL,
+		valid:                true,
+	}
+
+	return uploadURL, b.auth, nil
 }
