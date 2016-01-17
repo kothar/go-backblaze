@@ -17,8 +17,8 @@ func TestListBuckets(T *testing.T) {
 			DownloadURL:        "http://download.url",
 		}},
 		{200, listBucketsResponse{
-			Buckets: []*Bucket{
-				&Bucket{
+			Buckets: []*BucketInfo{
+				&BucketInfo{
 					ID:         bucketID,
 					AccountID:  accountID,
 					Name:       "testbucket",

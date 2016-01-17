@@ -3,12 +3,13 @@ package backblaze // import "gopkg.in/kothar/go-backblaze.v0"
 
 import (
 	"bytes"
-	"encoding/json"
 	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"sync"
+
+	"github.com/pquerna/ffjson/ffjson"
 )
 
 const (
@@ -43,37 +44,6 @@ type B2 struct {
 	host       string
 	auth       *authorizationState
 	httpClient http.Client
-}
-
-// B2Error encapsulates an error message returned by the B2 API.
-//
-// Failures to connect to the B2 servers, and networking problems in general can cause errors
-type B2Error struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
-	Status  int    `json:"status"`
-}
-
-func (e B2Error) Error() string {
-	return e.Code + ": " + e.Message
-}
-
-// IsFatal returns true if this error represents
-// an error which can't be recovered from by retrying
-func (e *B2Error) IsFatal() bool {
-	switch e.Status {
-	case 401:
-		return false
-	default:
-		return true
-	}
-}
-
-type authorizeAccountResponse struct {
-	AccountID          string `json:"accountId"`
-	APIEndpoint        string `json:"apiUrl"`
-	AuthorizationToken string `json:"authorizationToken"`
-	DownloadURL        string `json:"downloadUrl"`
 }
 
 // The current auth state of the client. Can be individually invalidated by
@@ -235,7 +205,7 @@ func (c *B2) authPost(apiPath string, body io.Reader) (*http.Response, *authoriz
 // B2Error object
 func (c *B2) parseError(body []byte) error {
 	b2err := &B2Error{}
-	if json.Unmarshal(body, b2err) != nil {
+	if ffjson.Unmarshal(body, b2err) != nil {
 		return nil
 	}
 	return b2err
@@ -276,15 +246,17 @@ func (c *B2) parseResponse(resp *http.Response, result interface{}, auth *author
 		}
 	}
 
-	return json.Unmarshal(body, result)
+	return ffjson.Unmarshal(body, result)
 }
 
 // Perform a B2 API request with the provided request and response objects
 func (c *B2) apiRequest(apiPath string, request interface{}, response interface{}) error {
-	body, err := json.Marshal(request)
+	body, err := ffjson.Marshal(request)
 	if err != nil {
 		return err
 	}
+	defer ffjson.Pool(body)
+
 	if c.Debug {
 		log.Println("----")
 		log.Printf("apiRequest: %s %s", apiPath, body)

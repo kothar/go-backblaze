@@ -1,13 +1,14 @@
 package backblaze
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"testing"
+
+	"github.com/pquerna/ffjson/ffjson"
 )
 
 type response struct {
@@ -47,7 +48,7 @@ func prepareResponses(responses []response) (*http.Client, *httptest.Server) {
 }
 
 func toJSON(o interface{}) string {
-	bytes, err := json.Marshal(o)
+	bytes, err := ffjson.Marshal(o)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -129,8 +130,8 @@ func TestReAuth(T *testing.T) {
 			DownloadURL:        "http://download.url",
 		}},
 		{200, listBucketsResponse{
-			Buckets: []*Bucket{
-				&Bucket{
+			Buckets: []*BucketInfo{
+				&BucketInfo{
 					ID:         bucketID,
 					AccountID:  accountID,
 					Name:       "testbucket",

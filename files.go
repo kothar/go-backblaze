@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"crypto/sha1"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -14,82 +13,9 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/pquerna/ffjson/ffjson"
 )
-
-type fileRequest struct {
-	ID string `json:"fileId"`
-}
-
-type fileVersionRequest struct {
-	Name string `json:"fileName"`
-	ID   string `json:"fileId"`
-}
-
-// File descibes a file stored in a B2 bucket
-type File struct {
-	ID            string            `json:"fileId"`
-	Name          string            `json:"fileName"`
-	AccountID     string            `json:"accountId"`
-	BucketID      string            `json:"bucketId"`
-	ContentLength int64             `json:"contentLength"`
-	ContentSha1   string            `json:"contentSha1"`
-	ContentType   string            `json:"contentType"`
-	FileInfo      map[string]string `json:"fileInfo"`
-}
-
-type listFilesRequest struct {
-	BucketID      string `json:"bucketId"`
-	StartFileName string `json:"startFileName"`
-	MaxFileCount  int    `json:"maxFileCount"`
-}
-
-// ListFilesResponse lists a page of files stored in a B2 bucket
-type ListFilesResponse struct {
-	Files        []FileStatus `json:"files"`
-	NextFileName string       `json:"nextFileName"`
-}
-
-type listFileVersionsRequest struct {
-	BucketID      string `json:"bucketId"`
-	StartFileName string `json:"startFileName,omitempty"`
-	StartFileID   string `json:"startFileId,omitempty"`
-	MaxFileCount  int    `json:"maxFileCount"`
-}
-
-// ListFileVersionsResponse lists a page of file versions stored in a B2 bucket
-type ListFileVersionsResponse struct {
-	Files        []FileStatus `json:"files"`
-	NextFileName string       `json:"nextFileName"`
-	NextFileID   string       `json:"nextFileId"`
-}
-
-type hideFileRequest struct {
-	BucketID string `json:"bucketId"`
-	FileName string `json:"fileName"`
-}
-
-// FileAction indicates the current status of a file in a B2 bucket
-type FileAction string
-
-// Files can be either uploads (visible) or hidden.
-//
-// Hiding a file makes it look like the file has been deleted, without
-// removing any of the history. It adds a new version of the file that is a
-// marker saying the file is no longer there.
-const (
-	Upload FileAction = "upload"
-	Hide   FileAction = "hide"
-)
-
-// FileStatus describes minimal metadata about a file in a B2 bucket.
-// It is returned by the ListFileNames and ListFileVersions methods
-type FileStatus struct {
-	FileAction      `json:"action"`
-	ID              string `json:"fileId"`
-	Name            string `json:"fileName"`
-	Size            int    `json:"size"`
-	UploadTimestamp int64  `json:"uploadTimestamp"`
-}
 
 // ListFileNames lists the names of all files in a bucket, starting at a given name.
 func (b *Bucket) ListFileNames(startFileName string, maxFileCount int) (*ListFilesResponse, error) {
@@ -227,7 +153,7 @@ func (c *B2) DownloadFileByID(fileID string) (*File, io.ReadCloser, error) {
 	request := &fileRequest{
 		ID: fileID,
 	}
-	requestBody, err := json.Marshal(request)
+	requestBody, err := ffjson.Marshal(request)
 	if err != nil {
 		return nil, nil, err
 	}
