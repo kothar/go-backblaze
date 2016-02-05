@@ -3,12 +3,13 @@ package backblaze // import "gopkg.in/kothar/go-backblaze.v0"
 
 import (
 	"bytes"
-	"encoding/json"
-	"errors"
-	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"net/http"
+	"sync"
+
+	"github.com/pquerna/ffjson/ffjson"
 )
 
 const (
@@ -28,38 +29,56 @@ type Credentials struct {
 	ApplicationKey string
 }
 
-// B2 implements a B2 API client
+// B2 implements a B2 API client. Do not modify state concurrently.
 type B2 struct {
 	Credentials
+
+	// If true, don't retry requests if authorization has expired
+	NoRetry bool
 
 	// If true, display debugging information about API calls
 	Debug bool
 
 	// State
-	authorizationToken string
-	apiEndpoint        string
-	downloadURL        string
-	httpClient         http.Client
+	mutex      sync.Mutex
+	host       string
+	auth       *authorizationState
+	httpClient http.Client
 }
 
-// B2Error encapsulates an error message returned by the B2 API.
-//
-// Failures to connect to the B2 servers, and networking problems in general can cause errors
-type B2Error struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
-	Status  int    `json:"status"`
+// The current auth state of the client. Can be individually invalidated by
+// requests which fail, tringgering a reauth the next time its validity is
+// checked
+type authorizationState struct {
+	sync.Mutex
+	*authorizeAccountResponse
+
+	valid bool
 }
 
-func (e *B2Error) Error() string {
-	return e.Code + ": " + e.Message
+func (a *authorizationState) isValid() bool {
+	if a == nil {
+		return false
+	}
+
+	a.Lock()
+	defer a.Unlock()
+
+	return a.valid
 }
 
-type authorizeAccountResponse struct {
-	AccountID          string `json:"accountId"`
-	APIEndpoint        string `json:"apiUrl"`
-	AuthorizationToken string `json:"authorizationToken"`
-	DownloadURL        string `json:"downloadUrl"`
+// Marks the authorization as invalid. This will result in a new Authorization
+// on the next API call.
+func (a *authorizationState) invalidate() {
+	if a == nil {
+		return
+	}
+
+	a.Lock()
+	defer a.Unlock()
+
+	a.valid = false
+	a.authorizeAccountResponse = nil
 }
 
 // NewB2 creates a new Client for accessing the B2 API.
@@ -79,7 +98,19 @@ func NewB2(creds Credentials) (*B2, error) {
 
 // AuthorizeAccount is used to log in to the B2 API.
 func (c *B2) AuthorizeAccount() error {
-	req, err := http.NewRequest("GET", b2Host+v1+"b2_authorize_account", nil)
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	return c.internalAuthorizeAccount()
+}
+
+// The body of AuthorizeAccount without a mutex
+func (c *B2) internalAuthorizeAccount() error {
+	if c.host == "" {
+		c.host = b2Host
+	}
+
+	req, err := http.NewRequest("GET", c.host+v1+"b2_authorize_account", nil)
 	if err != nil {
 		return err
 	}
@@ -91,125 +122,169 @@ func (c *B2) AuthorizeAccount() error {
 	}
 
 	authResponse := &authorizeAccountResponse{}
-	err = c.parseResponse(resp, authResponse)
-	if err != nil {
+	if err = c.parseResponse(resp, authResponse, nil); err != nil {
 		return err
 	}
 
 	// Store token
-	c.authorizationToken = authResponse.AuthorizationToken
-	c.downloadURL = authResponse.DownloadURL
-	c.apiEndpoint = authResponse.APIEndpoint
+	c.auth = &authorizationState{
+		authorizeAccountResponse: authResponse,
+		valid: true,
+	}
 
 	return nil
 }
 
 // DownloadURL returns the URL prefix needed to construct download links.
 // Bucket.FileURL will costruct a full URL for given file names.
-func (c *B2) DownloadURL() string {
-	return c.downloadURL
+func (c *B2) DownloadURL() (string, error) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	if !c.auth.isValid() {
+		if err := c.internalAuthorizeAccount(); err != nil {
+			return "", err
+		}
+	}
+	return c.auth.DownloadURL, nil
 }
 
 // Create an authorized request using the client's credentials
-func (c *B2) authRequest(method, path string, body io.Reader) (*http.Request, error) {
+func (c *B2) authRequest(method, apiPath string, body io.Reader) (*http.Request, *authorizationState, error) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	if !c.auth.isValid() {
+		if c.Debug {
+			log.Println("No valid authorization token, re-authorizing client")
+		}
+		if err := c.internalAuthorizeAccount(); err != nil {
+			return nil, nil, err
+		}
+	}
+
+	path := c.auth.APIEndpoint + v1 + apiPath
+
 	req, err := http.NewRequest(method, path, body)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	if c.authorizationToken != "" {
-		req.Header.Add("Authorization", c.authorizationToken)
-	}
+	req.Header.Add("Authorization", c.auth.AuthorizationToken)
 
 	if c.Debug {
-		println("Request: " + req.URL.String())
+		log.Printf("authRequest: %s %s\n", method, req.URL)
 	}
 
-	return req, nil
+	return req, c.auth, nil
 }
 
-// Create an authorized GET request
-func (c *B2) get(path string) (*http.Response, error) {
-	req, err := c.authRequest("GET", path, nil)
+// Dispatch an authorized API GET request
+func (c *B2) authGet(apiPath string) (*http.Response, *authorizationState, error) {
+	req, auth, err := c.authRequest("GET", apiPath, nil)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	return c.httpClient.Do(req)
+	resp, err := c.httpClient.Do(req)
+	return resp, auth, err
 }
 
-// Create an authorized POST request
-func (c *B2) post(path string, body io.Reader) (*http.Response, error) {
-	req, err := c.authRequest("POST", path, body)
+// Dispatch an authorized POST request
+func (c *B2) authPost(apiPath string, body io.Reader) (*http.Response, *authorizationState, error) {
+	req, auth, err := c.authRequest("POST", apiPath, body)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	return c.httpClient.Do(req)
+	resp, err := c.httpClient.Do(req)
+	return resp, auth, err
 }
 
 // Looks for an error message in the response body and parses it into a
 // B2Error object
-func (c *B2) parseError(resp *http.Response) error {
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return err
-	}
-
-	if c.Debug {
-		println("Response: " + string(body))
-	}
-
+func (c *B2) parseError(body []byte) error {
 	b2err := &B2Error{}
-	json.Unmarshal(body, b2err)
+	if ffjson.Unmarshal(body, b2err) != nil {
+		return nil
+	}
 	return b2err
 }
 
 // Attempts to parse a response body into the provided result struct
-func (c *B2) parseResponse(resp *http.Response, result interface{}) error {
+func (c *B2) parseResponse(resp *http.Response, result interface{}, auth *authorizationState) error {
 	defer resp.Body.Close()
 
-	// Check response code
-	switch resp.StatusCode {
-	case 200: // Response is OK
-	case 400: // BAD_REQUEST
-		return c.parseError(resp)
-	case 401:
-		return errors.New("UNAUTHORIZED - The account ID is wrong, the account does not have B2 enabled, or the application key is not valid")
-	default:
-		if err := c.parseError(resp); err != nil {
-			return err
-		}
-		return fmt.Errorf("Unrecognised status code: %d", resp.StatusCode)
-	}
-
+	// Read response body
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return err
 	}
 
 	if c.Debug {
-		println("Response: " + string(body))
+		log.Printf("Response: %s", body)
 	}
 
-	return json.Unmarshal(body, result)
+	// Check response code
+	switch resp.StatusCode {
+	case 200: // Response is OK
+	case 401:
+		auth.invalidate()
+		return &B2Error{
+			Code:    "UNAUTHORIZED",
+			Message: "The account ID is wrong, the account does not have B2 enabled, or the application key is not valid",
+			Status:  resp.StatusCode,
+		}
+	default:
+		if err := c.parseError(body); err != nil {
+			return err
+		}
+		return &B2Error{
+			Code:    "UNKNOWN",
+			Message: "Unrecognised status code",
+			Status:  resp.StatusCode,
+		}
+	}
+
+	return ffjson.Unmarshal(body, result)
 }
 
 // Perform a B2 API request with the provided request and response objects
-func (c *B2) apiRequest(apiMethod string, request interface{}, response interface{}) error {
-	body, err := json.Marshal(request)
+func (c *B2) apiRequest(apiPath string, request interface{}, response interface{}) error {
+	body, err := ffjson.Marshal(request)
 	if err != nil {
 		return err
 	}
-	resp, err := c.post(c.apiEndpoint+v1+apiMethod, bytes.NewReader(body))
+	defer ffjson.Pool(body)
+
+	if c.Debug {
+		log.Println("----")
+		log.Printf("apiRequest: %s %s", apiPath, body)
+	}
+
+	err = c.tryAPIRequest(apiPath, body, response)
+
+	// Retry after non-fatal errors
+	if b2err, ok := err.(*B2Error); ok {
+		if !b2err.IsFatal() && !c.NoRetry {
+			if c.Debug {
+				log.Printf("Retrying request %q due to error: %v", apiPath, err)
+			}
+
+			return c.tryAPIRequest(apiPath, body, response)
+		}
+	}
+	return err
+}
+
+func (c *B2) tryAPIRequest(apiPath string, body []byte, response interface{}) error {
+	resp, auth, err := c.authPost(apiPath, bytes.NewReader(body))
 	if err != nil {
+		if c.Debug {
+			log.Println("B2.post returned an error: ", err)
+		}
 		return err
 	}
 
-	err = c.parseResponse(resp, response)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return c.parseResponse(resp, response, auth)
 }

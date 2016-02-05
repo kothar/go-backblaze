@@ -2,7 +2,9 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"strings"
+	"time"
 )
 
 // Delete is a command
@@ -35,6 +37,10 @@ func (o *Delete) Execute(args []string) error {
 	for _, file := range args {
 		// TODO handle wildcards
 
+		if opts.Verbose {
+			fmt.Println(file)
+		}
+
 		parts := strings.SplitN(file, ":", 2)
 		if len(parts) > 1 {
 			bucket.DeleteFileVersion(parts[0], parts[1])
@@ -57,6 +63,10 @@ func (o *Delete) Execute(args []string) error {
 				for _, f := range versions.Files {
 					if f.Name != file {
 						break
+					}
+
+					if opts.Verbose && o.All {
+						fmt.Printf("  %s %v\n", f.ID, time.Unix(f.UploadTimestamp/1000, f.UploadTimestamp%1000))
 					}
 
 					if _, err := bucket.DeleteFileVersion(file, f.ID); err != nil {

@@ -3,61 +3,48 @@ package backblaze
 import (
 	"errors"
 	"net/url"
-)
-
-// BucketType defines the security setting for a bucket
-type BucketType string
-
-// Buckets can be either public or private
-const (
-	AllPublic  BucketType = "allPublic"
-	AllPrivate BucketType = "allPrivate"
+	"sync"
 )
 
 // Bucket provides access to the files stored in a B2 Bucket
 type Bucket struct {
-	ID         string `json:"bucketId"`
-	AccountID  string `json:"accountId"`
-	Name       string `json:"bucketName"`
-	BucketType `json:"bucketType"`
+	*BucketInfo
 
-	uploadURL          *url.URL
-	authorizationToken string
-	b2                 *B2
+	mutex sync.Mutex
+	auth  *bucketAuthorizationState
+	b2    *B2
 }
 
-type bucketRequest struct {
-	ID string `json:"bucketId"`
+type bucketAuthorizationState struct {
+	sync.Mutex
+	*getUploadURLResponse
+
+	valid     bool
+	uploadURL *url.URL
 }
 
-type createBucketRequest struct {
-	AccountID  string `json:"accountId"`
-	BucketName string `json:"bucketName"`
-	BucketType `json:"bucketType"`
+func (a *bucketAuthorizationState) isValid() (bool, *url.URL) {
+	if a == nil {
+		return false, nil
+	}
+
+	a.Lock()
+	defer a.Unlock()
+
+	return a.valid, a.uploadURL
 }
 
-type deleteBucketRequest struct {
-	AccountID string `json:"accountId"`
-	BucketID  string `json:"bucketId"`
-}
+func (a *bucketAuthorizationState) invalidate() {
+	if a == nil {
+		return
+	}
 
-type updateBucketRequest struct {
-	ID         string `json:"bucketId"`
-	BucketType `json:"bucketType"`
-}
+	a.Lock()
+	defer a.Unlock()
 
-type getUploadURLResponse struct {
-	BucketID           string `json:"bucketId"`
-	UploadURL          string `json:"uploadUrl"`
-	AuthorizationToken string `json:"authorizationToken"`
-}
-
-type accountRequest struct {
-	ID string `json:"accountId"`
-}
-
-type listBucketsResponse struct {
-	Buckets []*Bucket `json:"buckets"`
+	a.valid = false
+	a.getUploadURLResponse = nil
+	a.uploadURL = nil
 }
 
 // CreateBucket creates a new B2 Bucket in the authorized account.
@@ -71,13 +58,16 @@ func (b *B2) CreateBucket(bucketName string, bucketType BucketType) (*Bucket, er
 		BucketName: bucketName,
 		BucketType: bucketType,
 	}
-	response := &Bucket{b2: b}
+	response := &BucketInfo{}
 
 	if err := b.apiRequest("b2_create_bucket", request, response); err != nil {
 		return nil, err
 	}
 
-	return response, nil
+	return &Bucket{
+		BucketInfo: response,
+		b2:         b,
+	}, nil
 }
 
 // deleteBucket removes the specified bucket from the authorized account. Only
@@ -87,13 +77,16 @@ func (b *B2) deleteBucket(bucketID string) (*Bucket, error) {
 		AccountID: b.AccountID,
 		BucketID:  bucketID,
 	}
-	response := &Bucket{b2: b}
+	response := &BucketInfo{}
 
 	if err := b.apiRequest("b2_delete_bucket", request, response); err != nil {
 		return nil, err
 	}
 
-	return response, nil
+	return &Bucket{
+		BucketInfo: response,
+		b2:         b,
+	}, nil
 }
 
 // Delete removes removes the bucket from the authorized account. Only buckets
@@ -116,18 +109,24 @@ func (b *B2) ListBuckets() ([]*Bucket, error) {
 	}
 
 	// Construct bucket list
-	for _, bucket := range response.Buckets {
-		bucket.b2 = b
+	buckets := make([]*Bucket, len(response.Buckets))
+	for i, info := range response.Buckets {
+		bucket := &Bucket{
+			BucketInfo: info,
+			b2:         b,
+		}
 
-		switch bucket.BucketType {
-		case "allPublic":
-		case "allPrivate":
+		switch info.BucketType {
+		case AllPublic:
+		case AllPrivate:
 		default:
 			return nil, errors.New("Uncrecognised bucket type: " + string(bucket.BucketType))
 		}
+
+		buckets[i] = bucket
 	}
 
-	return response.Buckets, nil
+	return buckets, nil
 }
 
 // updateBucket allows the bucket type to be changed
@@ -136,13 +135,16 @@ func (b *B2) updateBucket(bucketID string, bucketType BucketType) (*Bucket, erro
 		ID:         bucketID,
 		BucketType: bucketType,
 	}
-	response := &Bucket{b2: b}
+	response := &BucketInfo{}
 
 	if err := b.apiRequest("b2_update_bucket", request, response); err != nil {
 		return nil, err
 	}
 
-	return response, nil
+	return &Bucket{
+		BucketInfo: response,
+		b2:         b,
+	}, nil
 }
 
 // Update allows the bucket type to be changed
@@ -167,28 +169,42 @@ func (b *B2) Bucket(bucketName string) (*Bucket, error) {
 	return nil, nil
 }
 
-// getUploadURL retrieves the URL to use for uploading files.
+// GetUploadURL retrieves the URL to use for uploading files.
 //
 // When you upload a file to B2, you must call b2_get_upload_url first to get
 // the URL for uploading directly to the place where the file will be stored.
-func (b *Bucket) getUploadURL() (*url.URL, error) {
-	if b.uploadURL == nil {
-		request := &bucketRequest{
-			ID: b.ID,
-		}
+func (b *Bucket) GetUploadURL() (*url.URL, error) {
+	uploadURL, _, err := b.internalGetUploadURL()
+	return uploadURL, err
+}
 
-		response := &getUploadURLResponse{}
-		if err := b.b2.apiRequest("b2_get_upload_url", request, response); err != nil {
-			return nil, err
-		}
+func (b *Bucket) internalGetUploadURL() (*url.URL, *bucketAuthorizationState, error) {
+	b.mutex.Lock()
+	defer b.mutex.Unlock()
 
-		// Set bucket upload URL
-		url, err := url.Parse(response.UploadURL)
-		if err != nil {
-			return nil, err
-		}
-		b.uploadURL = url
-		b.authorizationToken = response.AuthorizationToken
+	if valid, uploadURL := b.auth.isValid(); valid {
+		return uploadURL, b.auth, nil
 	}
-	return b.uploadURL, nil
+
+	request := &bucketRequest{
+		ID: b.ID,
+	}
+
+	response := &getUploadURLResponse{}
+	if err := b.b2.apiRequest("b2_get_upload_url", request, response); err != nil {
+		return nil, nil, err
+	}
+
+	// Set bucket auth
+	uploadURL, err := url.Parse(response.UploadURL)
+	if err != nil {
+		return nil, nil, err
+	}
+	b.auth = &bucketAuthorizationState{
+		getUploadURLResponse: response,
+		uploadURL:            uploadURL,
+		valid:                true,
+	}
+
+	return uploadURL, b.auth, nil
 }

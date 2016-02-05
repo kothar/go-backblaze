@@ -4,91 +4,18 @@ import (
 	"bytes"
 	"crypto/sha1"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/pquerna/ffjson/ffjson"
 )
-
-type fileRequest struct {
-	ID string `json:"fileId"`
-}
-
-type fileVersionRequest struct {
-	Name string `json:"fileName"`
-	ID   string `json:"fileId"`
-}
-
-// File descibes a file stored in a B2 bucket
-type File struct {
-	ID            string            `json:"fileId"`
-	Name          string            `json:"fileName"`
-	AccountID     string            `json:"accountId"`
-	BucketID      string            `json:"bucketId"`
-	ContentLength int64             `json:"contentLength"`
-	ContentSha1   string            `json:"contentSha1"`
-	ContentType   string            `json:"contentType"`
-	FileInfo      map[string]string `json:"fileInfo"`
-}
-
-type listFilesRequest struct {
-	BucketID      string `json:"bucketId"`
-	StartFileName string `json:"startFileName"`
-	MaxFileCount  int    `json:"maxFileCount"`
-}
-
-// ListFilesResponse lists a page of files stored in a B2 bucket
-type ListFilesResponse struct {
-	Files        []FileStatus `json:"files"`
-	NextFileName string       `json:"nextFileName"`
-}
-
-type listFileVersionsRequest struct {
-	BucketID      string `json:"bucketId"`
-	StartFileName string `json:"startFileName,omitempty"`
-	StartFileID   string `json:"startFileId,omitempty"`
-	MaxFileCount  int    `json:"maxFileCount"`
-}
-
-// ListFileVersionsResponse lists a page of file versions stored in a B2 bucket
-type ListFileVersionsResponse struct {
-	Files        []FileStatus `json:"files"`
-	NextFileName string       `json:"nextFileName"`
-	NextFileID   string       `json:"nextFileId"`
-}
-
-type hideFileRequest struct {
-	BucketID string `json:"bucketId"`
-	FileName string `json:"fileName"`
-}
-
-// FileAction indicates the current status of a file in a B2 bucket
-type FileAction string
-
-// Files can be either uploads (visible) or hidden.
-//
-// Hiding a file makes it look like the file has been deleted, without
-// removing any of the history. It adds a new version of the file that is a
-// marker saying the file is no longer there.
-const (
-	Upload FileAction = "upload"
-	Hide   FileAction = "hide"
-)
-
-// FileStatus describes minimal metadata about a file in a B2 bucket.
-// It is returned by the ListFileNames and ListFileVersions methods
-type FileStatus struct {
-	FileAction      `json:"action"`
-	ID              string `json:"fileId"`
-	Name            string `json:"fileName"`
-	Size            int    `json:"size"`
-	UploadTimestamp int64  `json:"uploadTimestamp"`
-}
 
 // ListFileNames lists the names of all files in a bucket, starting at a given name.
 func (b *Bucket) ListFileNames(startFileName string, maxFileCount int) (*ListFilesResponse, error) {
@@ -138,13 +65,24 @@ func (b *Bucket) UploadFile(name string, meta map[string]string, file io.Reader)
 	}
 
 	sha1Hash := hex.EncodeToString(hash.Sum(nil))
-	return b.UploadHashedFile(name, meta, reader, sha1Hash, contentLength)
+	f, err := b.UploadHashedFile(name, meta, reader, sha1Hash, contentLength)
+
+	// Retry after non-fatal errors
+	if b2err, ok := err.(*B2Error); ok {
+		if !b2err.IsFatal() && !b.b2.NoRetry {
+			f, err = b.UploadHashedFile(name, meta, reader, sha1Hash, contentLength)
+		}
+	}
+	return f, err
 }
 
 // UploadHashedFile Uploads a file to B2, returning its unique file ID.
+//
+// This method will not retry if the upload fails, as the reader may have consumed
+// some bytes. If the error type is B2Error and IsFatal returns false, you may retry the
+// upload and expect it to succeed eventually.
 func (b *Bucket) UploadHashedFile(name string, meta map[string]string, file io.Reader, sha1Hash string, contentLength int64) (*File, error) {
-
-	_, err := b.getUploadURL()
+	uploadURL, auth, err := b.internalGetUploadURL()
 	if err != nil {
 		return nil, err
 	}
@@ -156,11 +94,11 @@ func (b *Bucket) UploadHashedFile(name string, meta map[string]string, file io.R
 	}
 
 	// Create authorized request
-	req, err := http.NewRequest("POST", b.uploadURL.String(), file)
+	req, err := http.NewRequest("POST", uploadURL.String(), file)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Add("Authorization", b.authorizationToken)
+	req.Header.Add("Authorization", auth.AuthorizationToken)
 
 	// Set file metadata
 	req.ContentLength = contentLength
@@ -176,15 +114,15 @@ func (b *Bucket) UploadHashedFile(name string, meta map[string]string, file io.R
 
 	resp, err := b.b2.httpClient.Do(req)
 	if err != nil {
-		b.uploadURL = nil
-		b.authorizationToken = ""
+		auth.invalidate()
 		return nil, err
 	}
 
 	result := &File{}
-	if err := b.b2.parseResponse(resp, result); err != nil {
-		b.uploadURL = nil
-		b.authorizationToken = ""
+
+	// We are not dealing with the b2 client auth token in this case, hence the nil auth
+	if err := b.b2.parseResponse(resp, result, nil); err != nil {
+		auth.invalidate()
 		return nil, err
 	}
 
@@ -210,58 +148,123 @@ func (b *Bucket) GetFileInfo(fileID string) (*File, error) {
 }
 
 // DownloadFileByID downloads a file from B2 using its unique ID
-func (b *B2) DownloadFileByID(fileID string) (*File, io.ReadCloser, error) {
+func (c *B2) DownloadFileByID(fileID string) (*File, io.ReadCloser, error) {
+
 	request := &fileRequest{
 		ID: fileID,
 	}
-	body, err := json.Marshal(request)
+	requestBody, err := ffjson.Marshal(request)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	resp, err := b.post(b.apiEndpoint+v1+"b2_download_file_by_id", bytes.NewReader(body))
-	if err != nil {
-		return nil, nil, err
-	}
+	f, body, err := c.tryDownloadFileByID(requestBody)
 
-	return b.downloadFile(resp)
+	// Retry after non-fatal errors
+	if b2err, ok := err.(*B2Error); ok {
+		if !b2err.IsFatal() && !c.NoRetry {
+			return c.tryDownloadFileByID(requestBody)
+		}
+	}
+	return f, body, err
 }
 
-// FileURL returns a URL which may be used to dowload the laterst version of a file.
-// This will only work for public URLs unless the correct authorization header is provided.
-func (b *Bucket) FileURL(fileName string) string {
-	return b.b2.downloadURL + "/file/" + b.Name + "/" + fileName
+func (c *B2) tryDownloadFileByID(requestBody []byte) (*File, io.ReadCloser, error) {
+	resp, auth, err := c.authPost("b2_download_file_by_id", bytes.NewReader(requestBody))
+	if err != nil {
+		return nil, nil, err
+	}
+	return c.downloadFile(resp, auth)
+}
+
+// FileURL returns a URL which may be used to download the latest version of a file.
+// This returned URL will only work for public buckets unless the correct authorization header is provided.
+func (b *Bucket) FileURL(fileName string) (string, error) {
+	fileURL, _, err := b.internalFileURL(fileName)
+	return fileURL, err
+}
+
+func (b *Bucket) internalFileURL(fileName string) (string, *authorizationState, error) {
+	b.b2.mutex.Lock()
+	defer b.b2.mutex.Unlock()
+
+	if !b.b2.auth.isValid() {
+		if err := b.b2.internalAuthorizeAccount(); err != nil {
+			return "", nil, err
+		}
+	}
+	return b.b2.auth.DownloadURL + "/file/" + b.Name + "/" + fileName, b.b2.auth, nil
 }
 
 // DownloadFileByName Downloads one file by providing the name of the bucket and the name of the
 // file.
 func (b *Bucket) DownloadFileByName(fileName string) (*File, io.ReadCloser, error) {
 
-	url := b.FileURL(fileName)
+	f, body, err := b.tryDownloadFileByName(fileName)
 
-	resp, err := b.b2.get(url)
+	// Retry after non-fatal errors
+	if b2err, ok := err.(*B2Error); ok {
+		if !b2err.IsFatal() && !b.b2.NoRetry {
+			return b.tryDownloadFileByName(fileName)
+		}
+	}
+	return f, body, err
+}
+
+func (b *Bucket) tryDownloadFileByName(fileName string) (*File, io.ReadCloser, error) {
+	// Locate the file
+	fileURL, auth, err := b.internalFileURL(fileName)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	return b.b2.downloadFile(resp)
+	// Make the download request
+	req, err := http.NewRequest("GET", fileURL, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	req.Header.Add("Authorization", auth.AuthorizationToken)
+
+	resp, err := b.b2.httpClient.Do(req)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Handle the response
+	return b.b2.downloadFile(resp, auth)
 }
 
-func (b *B2) downloadFile(resp *http.Response) (*File, io.ReadCloser, error) {
+func (c *B2) downloadFile(resp *http.Response, auth *authorizationState) (*File, io.ReadCloser, error) {
+	success := false
+	defer func() {
+		if !success {
+			resp.Body.Close()
+		}
+	}()
+
 	switch resp.StatusCode {
 	case 200:
+	case 401:
+		auth.invalidate()
+		return nil, nil, &B2Error{
+			Code:    "UNAUTHORIZED",
+			Message: "The account ID is wrong, the account does not have B2 enabled, or the application key is not valid",
+			Status:  resp.StatusCode,
+		}
 	default:
-		if err := b.parseError(resp); err != nil {
-			resp.Body.Close()
+		body, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
 			return nil, nil, err
 		}
-		resp.Body.Close()
+		if err := c.parseError(body); err != nil {
+			return nil, nil, err
+		}
+
 		return nil, nil, fmt.Errorf("Unrecognised status code: %d", resp.StatusCode)
 	}
 
 	name, err := url.QueryUnescape(resp.Header.Get("X-Bz-File-Name"))
 	if err != nil {
-		resp.Body.Close()
 		return nil, nil, err
 	}
 
@@ -275,7 +278,6 @@ func (b *B2) downloadFile(resp *http.Response) (*File, io.ReadCloser, error) {
 
 	size, err := strconv.ParseInt(resp.Header.Get("Content-Length"), 10, 64)
 	if err != nil {
-		resp.Body.Close()
 		return nil, nil, err
 	}
 	file.ContentLength = size
@@ -297,6 +299,7 @@ func (b *B2) downloadFile(resp *http.Response) (*File, io.ReadCloser, error) {
 		}
 	}
 
+	success = true // Don't close the response body
 	return file, resp.Body, nil
 }
 
