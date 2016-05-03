@@ -40,10 +40,11 @@ type accountRequest struct {
 // BucketType defines the security setting for a bucket
 type BucketType string
 
-// Buckets can be either public or private
+// Buckets can be either public, private, or snapshot
 const (
 	AllPublic  BucketType = "allPublic"
 	AllPrivate BucketType = "allPrivate"
+	Snapshot   BucketType = "snapshot"
 )
 
 // BucketInfo describes a bucket
