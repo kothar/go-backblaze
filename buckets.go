@@ -119,6 +119,7 @@ func (b *B2) ListBuckets() ([]*Bucket, error) {
 		switch info.BucketType {
 		case AllPublic:
 		case AllPrivate:
+		case Snapshot:
 		default:
 			return nil, errors.New("Uncrecognised bucket type: " + string(bucket.BucketType))
 		}
