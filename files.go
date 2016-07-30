@@ -114,7 +114,7 @@ func (b *Bucket) UploadHashedFile(name string, meta map[string]string, file io.R
 			// set the rest of headers as X-Bz-Info-* to preserve backwards
 			// compatibility
 			if strings.ToLower(k) == "content-type" {
-				req.Header.Set("Content-Type", url.QueryEscape(v))
+				req.Header.Set("Content-Type", v)
 			} else {
 				req.Header.Add("X-Bz-Info-"+url.QueryEscape(k), url.QueryEscape(v))
 			}
