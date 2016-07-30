@@ -98,17 +98,26 @@ func (b *Bucket) UploadHashedFile(name string, meta map[string]string, file io.R
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Add("Authorization", auth.AuthorizationToken)
+
+	req.Header.Set("Authorization", auth.AuthorizationToken)
 
 	// Set file metadata
 	req.ContentLength = contentLength
-	req.Header.Add("Content-Type", "b2/x-auto")
-	req.Header.Add("X-Bz-File-Name", url.QueryEscape(name))
-	req.Header.Add("X-Bz-Content-Sha1", sha1Hash)
+	// default content type
+	req.Header.Set("Content-Type", "b2/x-auto")
+	req.Header.Set("X-Bz-File-Name", url.QueryEscape(name))
+	req.Header.Set("X-Bz-Content-Sha1", sha1Hash)
 
 	if meta != nil {
 		for k, v := range meta {
-			req.Header.Add("X-Bz-Info-"+url.QueryEscape(k), url.QueryEscape(v))
+			// add support for editable content-type;
+			// set the rest of headers as X-Bz-Info-* to preserve backwards
+			// compatibility
+			if strings.ToLower(k) == "content-type" {
+				req.Header.Set("Content-Type", url.QueryEscape(v))
+			} else {
+				req.Header.Add("X-Bz-Info-"+url.QueryEscape(k), url.QueryEscape(v))
+			}
 		}
 	}
 
