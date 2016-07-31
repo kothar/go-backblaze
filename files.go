@@ -33,9 +33,14 @@ func (b *Bucket) ListFileNames(startFileName string, maxFileCount int) (*ListFil
 	return response, nil
 }
 
-// UploadFile uploads a file to B2, returning its unique file ID.
-// This method computes the hash of the file before passing it to UploadHashedFile
+// UploadFile calls UploadTypedFile with the b2/x-auto contentType
 func (b *Bucket) UploadFile(name string, meta map[string]string, file io.Reader) (*File, error) {
+	return b.UploadTypedFile(name, "b2/x-auto", meta, file)
+}
+
+// UploadTypedFile uploads a file to B2, returning its unique file ID.
+// This method computes the hash of the file before passing it to UploadHashedFile
+func (b *Bucket) UploadTypedFile(name, contentType string, meta map[string]string, file io.Reader) (*File, error) {
 
 	// Hash the upload
 	hash := sha1.New()
@@ -65,23 +70,34 @@ func (b *Bucket) UploadFile(name string, meta map[string]string, file io.Reader)
 	}
 
 	sha1Hash := hex.EncodeToString(hash.Sum(nil))
-	f, err := b.UploadHashedFile(name, meta, reader, sha1Hash, contentLength)
+	f, err := b.UploadHashedTypedFile(name, contentType, meta, reader, sha1Hash, contentLength)
 
 	// Retry after non-fatal errors
 	if b2err, ok := err.(*B2Error); ok {
 		if !b2err.IsFatal() && !b.b2.NoRetry {
-			f, err = b.UploadHashedFile(name, meta, reader, sha1Hash, contentLength)
+			f, err = b.UploadHashedTypedFile(name, contentType, meta, reader, sha1Hash, contentLength)
 		}
 	}
 	return f, err
 }
 
-// UploadHashedFile Uploads a file to B2, returning its unique file ID.
+// UploadHashedFile calls UploadHashedTypedFile with the b2/x-auto file type
+func (b *Bucket) UploadHashedFile(
+	name string, meta map[string]string, file io.Reader,
+	sha1Hash string, contentLength int64) (*File, error) {
+
+	return b.UploadHashedTypedFile(name, "b2/x-auto", meta, file, sha1Hash, contentLength)
+}
+
+// UploadHashedTypedFile Uploads a file to B2, returning its unique file ID.
 //
 // This method will not retry if the upload fails, as the reader may have consumed
 // some bytes. If the error type is B2Error and IsFatal returns false, you may retry the
 // upload and expect it to succeed eventually.
-func (b *Bucket) UploadHashedFile(name string, meta map[string]string, file io.Reader, sha1Hash string, contentLength int64) (*File, error) {
+func (b *Bucket) UploadHashedTypedFile(
+	name, contentType string, meta map[string]string, file io.Reader,
+	sha1Hash string, contentLength int64) (*File, error) {
+
 	uploadURL, auth, err := b.internalGetUploadURL()
 	if err != nil {
 		return nil, err
@@ -91,6 +107,7 @@ func (b *Bucket) UploadHashedFile(name string, meta map[string]string, file io.R
 		fmt.Printf("         Upload: %s/%s\n", b.Name, name)
 		fmt.Printf("           SHA1: %s\n", sha1Hash)
 		fmt.Printf("  ContentLength: %d\n", contentLength)
+		fmt.Printf("    ContentType: %s\n", contentType)
 	}
 
 	// Create authorized request
@@ -104,20 +121,13 @@ func (b *Bucket) UploadHashedFile(name string, meta map[string]string, file io.R
 	// Set file metadata
 	req.ContentLength = contentLength
 	// default content type
-	req.Header.Set("Content-Type", "b2/x-auto")
+	req.Header.Set("Content-Type", contentType)
 	req.Header.Set("X-Bz-File-Name", url.QueryEscape(name))
 	req.Header.Set("X-Bz-Content-Sha1", sha1Hash)
 
 	if meta != nil {
 		for k, v := range meta {
-			// add support for editable content-type;
-			// set the rest of headers as X-Bz-Info-* to preserve backwards
-			// compatibility
-			if strings.ToLower(k) == "content-type" {
-				req.Header.Set("Content-Type", v)
-			} else {
-				req.Header.Add("X-Bz-Info-"+url.QueryEscape(k), url.QueryEscape(v))
-			}
+			req.Header.Add("X-Bz-Info-"+url.QueryEscape(k), url.QueryEscape(v))
 		}
 	}
 
