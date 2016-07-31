@@ -230,6 +230,9 @@ func (c *B2) parseResponse(resp *http.Response, result interface{}, auth *author
 	case 200: // Response is OK
 	case 401:
 		auth.invalidate()
+		if err := c.parseError(body); err != nil {
+			return err
+		}
 		return &B2Error{
 			Code:    "UNAUTHORIZED",
 			Message: "The account ID is wrong, the account does not have B2 enabled, or the application key is not valid",

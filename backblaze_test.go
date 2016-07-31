@@ -56,9 +56,9 @@ func toJSON(o interface{}) string {
 }
 
 func TestUnauthorizedError(T *testing.T) {
-	err := &B2Error{Status: 401}
+	err := &B2Error{Status: 401, Code: "expired_auth_token"}
 	if err.IsFatal() {
-		T.Fatal("401 error should not be considered fatal")
+		T.Fatal("401 expired_auth_token error should not be considered fatal")
 	}
 }
 
@@ -120,7 +120,7 @@ func TestReAuth(T *testing.T) {
 		}},
 		{401, B2Error{
 			Status:  401,
-			Code:    "UNAUTHORIZED",
+			Code:    "expired_auth_token",
 			Message: "Authentication token expired",
 		}},
 		{200, authorizeAccountResponse{

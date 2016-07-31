@@ -10,9 +10,8 @@ import (
 type Bucket struct {
 	*BucketInfo
 
-	mutex sync.Mutex
-	auth  *bucketAuthorizationState
-	b2    *B2
+	uploadPool sync.Pool
+	b2         *B2
 }
 
 type bucketAuthorizationState struct {
@@ -23,15 +22,15 @@ type bucketAuthorizationState struct {
 	uploadURL *url.URL
 }
 
-func (a *bucketAuthorizationState) isValid() (bool, *url.URL) {
+func (a *bucketAuthorizationState) isValid() bool {
 	if a == nil {
-		return false, nil
+		return false
 	}
 
 	a.Lock()
 	defer a.Unlock()
 
-	return a.valid, a.uploadURL
+	return a.valid
 }
 
 func (a *bucketAuthorizationState) invalidate() {
@@ -64,10 +63,12 @@ func (b *B2) CreateBucket(bucketName string, bucketType BucketType) (*Bucket, er
 		return nil, err
 	}
 
-	return &Bucket{
+	bucket := &Bucket{
 		BucketInfo: response,
 		b2:         b,
-	}, nil
+	}
+
+	return bucket, nil
 }
 
 // deleteBucket removes the specified bucket from the authorized account. Only
@@ -175,16 +176,17 @@ func (b *B2) Bucket(bucketName string) (*Bucket, error) {
 // When you upload a file to B2, you must call b2_get_upload_url first to get
 // the URL for uploading directly to the place where the file will be stored.
 func (b *Bucket) GetUploadURL() (*url.URL, error) {
-	uploadURL, _, err := b.internalGetUploadURL()
-	return uploadURL, err
+	auth, err := b.getUploadAuth()
+	if err != nil {
+		return nil, err
+	}
+	return auth.uploadURL, nil
 }
 
-func (b *Bucket) internalGetUploadURL() (*url.URL, *bucketAuthorizationState, error) {
-	b.mutex.Lock()
-	defer b.mutex.Unlock()
-
-	if valid, uploadURL := b.auth.isValid(); valid {
-		return uploadURL, b.auth, nil
+func (b *Bucket) getUploadAuth() (*bucketAuthorizationState, error) {
+	auth, found := b.uploadPool.Get().(*bucketAuthorizationState)
+	if found && auth.isValid() {
+		return auth, nil
 	}
 
 	request := &bucketRequest{
@@ -193,19 +195,25 @@ func (b *Bucket) internalGetUploadURL() (*url.URL, *bucketAuthorizationState, er
 
 	response := &getUploadURLResponse{}
 	if err := b.b2.apiRequest("b2_get_upload_url", request, response); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	// Set bucket auth
 	uploadURL, err := url.Parse(response.UploadURL)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	b.auth = &bucketAuthorizationState{
+	auth = &bucketAuthorizationState{
 		getUploadURLResponse: response,
 		uploadURL:            uploadURL,
 		valid:                true,
 	}
 
-	return uploadURL, b.auth, nil
+	return auth, nil
+}
+
+func (b *Bucket) returnUploadAuth(auth *bucketAuthorizationState) {
+	if auth.isValid() {
+		b.uploadPool.Put(auth)
+	}
 }

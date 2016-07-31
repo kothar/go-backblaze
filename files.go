@@ -82,7 +82,7 @@ func (b *Bucket) UploadFile(name string, meta map[string]string, file io.Reader)
 // some bytes. If the error type is B2Error and IsFatal returns false, you may retry the
 // upload and expect it to succeed eventually.
 func (b *Bucket) UploadHashedFile(name string, meta map[string]string, file io.Reader, sha1Hash string, contentLength int64) (*File, error) {
-	uploadURL, auth, err := b.internalGetUploadURL()
+	auth, err := b.getUploadAuth()
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +94,7 @@ func (b *Bucket) UploadHashedFile(name string, meta map[string]string, file io.R
 	}
 
 	// Create authorized request
-	req, err := http.NewRequest("POST", uploadURL.String(), file)
+	req, err := http.NewRequest("POST", auth.uploadURL.String(), file)
 	if err != nil {
 		return nil, err
 	}
@@ -125,6 +125,7 @@ func (b *Bucket) UploadHashedFile(name string, meta map[string]string, file io.R
 		auth.invalidate()
 		return nil, err
 	}
+	b.returnUploadAuth(auth)
 
 	if sha1Hash != result.ContentSha1 {
 		return nil, errors.New("SHA1 of uploaded file does not match local hash")
@@ -246,6 +247,13 @@ func (c *B2) downloadFile(resp *http.Response, auth *authorizationState) (*File,
 	case 200:
 	case 401:
 		auth.invalidate()
+		body, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return nil, nil, err
+		}
+		if err := c.parseError(body); err != nil {
+			return nil, nil, err
+		}
 		return nil, nil, &B2Error{
 			Code:    "UNAUTHORIZED",
 			Message: "The account ID is wrong, the account does not have B2 enabled, or the application key is not valid",
