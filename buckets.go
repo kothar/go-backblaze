@@ -12,6 +12,7 @@ type Bucket struct {
 	b2 *B2
 }
 
+// UploadAuth encapsulates the details needed to upload a file to B2
 type UploadAuth struct {
 	AuthorizationToken string
 	UploadURL          *url.URL
