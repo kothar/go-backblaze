@@ -3,47 +3,19 @@ package backblaze
 import (
 	"errors"
 	"net/url"
-	"sync"
 )
 
 // Bucket provides access to the files stored in a B2 Bucket
 type Bucket struct {
 	*BucketInfo
 
-	uploadPool sync.Pool
-	b2         *B2
+	b2 *B2
 }
 
-type bucketAuthorizationState struct {
-	sync.Mutex
-	*getUploadURLResponse
-
-	valid     bool
-	uploadURL *url.URL
-}
-
-func (a *bucketAuthorizationState) isValid() bool {
-	if a == nil {
-		return false
-	}
-
-	a.Lock()
-	defer a.Unlock()
-
-	return a.valid
-}
-
-func (a *bucketAuthorizationState) invalidate() {
-	if a == nil {
-		return
-	}
-
-	a.Lock()
-	defer a.Unlock()
-
-	a.valid = false
-	a.getUploadURLResponse = nil
-	a.uploadURL = nil
+type UploadAuth struct {
+	AuthorizationToken string
+	UploadURL          *url.URL
+	Valid              bool
 }
 
 // CreateBucket creates a new B2 Bucket in the authorized account.
@@ -171,24 +143,11 @@ func (b *B2) Bucket(bucketName string) (*Bucket, error) {
 	return nil, nil
 }
 
-// GetUploadURL retrieves the URL to use for uploading files.
+// GetUploadAuth retrieves the URL to use for uploading files.
 //
 // When you upload a file to B2, you must call b2_get_upload_url first to get
 // the URL for uploading directly to the place where the file will be stored.
-func (b *Bucket) GetUploadURL() (*url.URL, error) {
-	auth, err := b.getUploadAuth()
-	if err != nil {
-		return nil, err
-	}
-	return auth.uploadURL, nil
-}
-
-func (b *Bucket) getUploadAuth() (*bucketAuthorizationState, error) {
-	auth, found := b.uploadPool.Get().(*bucketAuthorizationState)
-	if found && auth.isValid() {
-		return auth, nil
-	}
-
+func (b *Bucket) GetUploadAuth() (*UploadAuth, error) {
 	request := &bucketRequest{
 		ID: b.ID,
 	}
@@ -203,17 +162,11 @@ func (b *Bucket) getUploadAuth() (*bucketAuthorizationState, error) {
 	if err != nil {
 		return nil, err
 	}
-	auth = &bucketAuthorizationState{
-		getUploadURLResponse: response,
-		uploadURL:            uploadURL,
-		valid:                true,
+	auth := &UploadAuth{
+		AuthorizationToken: response.AuthorizationToken,
+		UploadURL:          uploadURL,
+		Valid:              true,
 	}
 
 	return auth, nil
-}
-
-func (b *Bucket) returnUploadAuth(auth *bucketAuthorizationState) {
-	if auth.isValid() {
-		b.uploadPool.Put(auth)
-	}
 }

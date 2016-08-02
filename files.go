@@ -98,7 +98,7 @@ func (b *Bucket) UploadHashedTypedFile(
 	name, contentType string, meta map[string]string, file io.Reader,
 	sha1Hash string, contentLength int64) (*File, error) {
 
-	auth, err := b.getUploadAuth()
+	auth, err := b.GetUploadAuth()
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +111,7 @@ func (b *Bucket) UploadHashedTypedFile(
 	}
 
 	// Create authorized request
-	req, err := http.NewRequest("POST", auth.uploadURL.String(), file)
+	req, err := http.NewRequest("POST", auth.UploadURL.String(), file)
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +133,7 @@ func (b *Bucket) UploadHashedTypedFile(
 
 	resp, err := b.b2.httpClient.Do(req)
 	if err != nil {
-		auth.invalidate()
+		auth.Valid = false
 		return nil, err
 	}
 
@@ -141,10 +141,9 @@ func (b *Bucket) UploadHashedTypedFile(
 
 	// We are not dealing with the b2 client auth token in this case, hence the nil auth
 	if err := b.b2.parseResponse(resp, result, nil); err != nil {
-		auth.invalidate()
+		auth.Valid = false
 		return nil, err
 	}
-	b.returnUploadAuth(auth)
 
 	if sha1Hash != result.ContentSha1 {
 		return nil, errors.New("SHA1 of uploaded file does not match local hash")
