@@ -98,7 +98,7 @@ func (b *Bucket) UploadHashedTypedFile(
 	name, contentType string, meta map[string]string, file io.Reader,
 	sha1Hash string, contentLength int64) (*File, error) {
 
-	uploadURL, auth, err := b.internalGetUploadURL()
+	auth, err := b.GetUploadAuth()
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +111,7 @@ func (b *Bucket) UploadHashedTypedFile(
 	}
 
 	// Create authorized request
-	req, err := http.NewRequest("POST", uploadURL.String(), file)
+	req, err := http.NewRequest("POST", auth.UploadURL.String(), file)
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +133,7 @@ func (b *Bucket) UploadHashedTypedFile(
 
 	resp, err := b.b2.httpClient.Do(req)
 	if err != nil {
-		auth.invalidate()
+		auth.Valid = false
 		return nil, err
 	}
 
@@ -141,7 +141,7 @@ func (b *Bucket) UploadHashedTypedFile(
 
 	// We are not dealing with the b2 client auth token in this case, hence the nil auth
 	if err := b.b2.parseResponse(resp, result, nil); err != nil {
-		auth.invalidate()
+		auth.Valid = false
 		return nil, err
 	}
 
@@ -265,6 +265,13 @@ func (c *B2) downloadFile(resp *http.Response, auth *authorizationState) (*File,
 	case 200:
 	case 401:
 		auth.invalidate()
+		body, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return nil, nil, err
+		}
+		if err := c.parseError(body); err != nil {
+			return nil, nil, err
+		}
 		return nil, nil, &B2Error{
 			Code:    "UNAUTHORIZED",
 			Message: "The account ID is wrong, the account does not have B2 enabled, or the application key is not valid",

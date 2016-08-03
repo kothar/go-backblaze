@@ -20,7 +20,7 @@ func TestDownloadReAuth(T *testing.T) {
 		}},
 		{401, B2Error{
 			Status:  401,
-			Code:    "UNAUTHORIZED",
+			Code:    "expired_auth_token",
 			Message: "Authentication token expired",
 		}},
 		{200, authorizeAccountResponse{

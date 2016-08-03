@@ -18,8 +18,19 @@ func (e B2Error) Error() string {
 // IsFatal returns true if this error represents
 // an error which can't be recovered from by retrying
 func (e *B2Error) IsFatal() bool {
-	switch e.Status {
-	case 401:
+	switch {
+	case e.Status == 401: // Unauthorized
+		switch e.Code {
+		case "expired_auth_token":
+			return false
+		case "missing_auth_token", "bad_auth_token":
+			return true
+		default:
+			return true
+		}
+	case e.Status == 408: // Timeout
+		return false
+	case e.Status >= 500 && e.Status < 600: // Server error
 		return false
 	default:
 		return true
