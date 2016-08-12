@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	b2Host = "https://api.backblaze.com"
+	b2Host = "https://api.backblazeb2.com"
 	v1     = "/b2api/v1/"
 )
 
