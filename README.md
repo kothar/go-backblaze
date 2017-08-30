@@ -48,7 +48,7 @@ It should provide you with more examples of how to use the API in your own appli
 
 To install the b2 command, use:
 
-`go install gopkg.in/kothar/go-backblaze.v0/b2`
+`go get -u gopkg.in/kothar/go-backblaze.v0/b2`
 
 ~~~
 $ b2 --help
