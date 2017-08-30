@@ -60,7 +60,7 @@ func TestDownloadFileRange(T *testing.T) {
 			DownloadURL:        "http://download.url",
 		}},
 		{code: 200, body: testFile[0:4], headers: map[string]string{
-			"Content-Range": "bytes=0-3",
+			"Content-Range": "bytes 0-3/13",
 		}},
 	})
 	defer server.Close()

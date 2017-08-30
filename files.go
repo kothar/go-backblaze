@@ -198,9 +198,18 @@ func (c *B2) DownloadFileByID(fileID string) (*File, io.ReadCloser, error) {
 
 // DownloadFileRangeByID downloads part of a file from B2 using its unique ID and a requested byte range.
 func (c *B2) DownloadFileRangeByID(fileID string, fileRange *FileRange) (*File, io.ReadCloser, error) {
+
 	request := &fileRequest{
 		ID: fileID,
 	}
+
+	if c.Debug {
+		fmt.Println("---")
+		fmt.Printf("  Download by ID: %s\n", fileID)
+		fmt.Printf("           Range: %+v\n", fileRange)
+		fmt.Printf("         Request: %+v\n", request)
+	}
+
 	requestBody, err := ffjson.Marshal(request)
 	if err != nil {
 		return nil, nil, err
@@ -265,6 +274,12 @@ func (b *Bucket) DownloadFileByName(fileName string) (*File, io.ReadCloser, erro
 // file, and a requested byte range
 func (b *Bucket) DownloadFileRangeByName(fileName string, fileRange *FileRange) (*File, io.ReadCloser, error) {
 
+	if b.b2.Debug {
+		fmt.Println("---")
+		fmt.Printf("  Download by name: %s/%s\n", b.Name, fileName)
+		fmt.Printf("             Range: %+v\n", fileRange)
+	}
+
 	f, body, err := b.tryDownloadFileByName(fileName, fileRange)
 
 	// Retry after non-fatal errors
@@ -281,6 +296,10 @@ func (b *Bucket) tryDownloadFileByName(fileName string, fileRange *FileRange) (*
 	fileURL, auth, err := b.internalFileURL(fileName)
 	if err != nil {
 		return nil, nil, err
+	}
+
+	if b.b2.Debug {
+		fmt.Printf("  Download URL: %s\n", fileURL)
 	}
 
 	// Make the download request
@@ -310,6 +329,11 @@ func (c *B2) downloadFile(resp *http.Response, auth *authorizationState) (*File,
 			resp.Body.Close()
 		}
 	}()
+
+	if c.Debug {
+		fmt.Printf("  Response status: %d\n", resp.StatusCode)
+		fmt.Printf("          Headers: %+v\n", resp.Header)
+	}
 
 	switch resp.StatusCode {
 	case 200:
@@ -363,8 +387,11 @@ func (c *B2) downloadFile(resp *http.Response, auth *authorizationState) (*File,
 	// Parse Content-Range
 	contentRange := resp.Header.Get("Content-Range")
 	if contentRange != "" {
-		var start, end int64
-		fmt.Sscanf(contentRange, "bytes=%d-%d", &start, &end)
+		var start, end, total int64
+		_, err := fmt.Sscanf(contentRange, "bytes %d-%d/%d", &start, &end, &total)
+		if err != nil {
+			return nil, nil, fmt.Errorf("Unable to parse Content-Range header: %s", err)
+		}
 		if end-start+1 != file.ContentLength {
 			return nil, nil, fmt.Errorf("Content-Range (%d-%d) does not match Content-Length (%d)", start, end, file.ContentLength)
 		}
