@@ -193,7 +193,11 @@ func (b *Bucket) GetFileInfo(fileID string) (*File, error) {
 
 // DownloadFileByID downloads a file from B2 using its unique ID
 func (c *B2) DownloadFileByID(fileID string) (*File, io.ReadCloser, error) {
+	return c.DownloadFileRangeByID(fileID, nil)
+}
 
+// DownloadFileRangeByID downloads part of a file from B2 using its unique ID and a requested byte range.
+func (c *B2) DownloadFileRangeByID(fileID string, fileRange *FileRange) (*File, io.ReadCloser, error) {
 	request := &fileRequest{
 		ID: fileID,
 	}
@@ -202,19 +206,28 @@ func (c *B2) DownloadFileByID(fileID string) (*File, io.ReadCloser, error) {
 		return nil, nil, err
 	}
 
-	f, body, err := c.tryDownloadFileByID(requestBody)
+	f, body, err := c.tryDownloadFileByID(requestBody, fileRange)
 
 	// Retry after non-fatal errors
 	if b2err, ok := err.(*B2Error); ok {
 		if !b2err.IsFatal() && !c.NoRetry {
-			return c.tryDownloadFileByID(requestBody)
+			return c.tryDownloadFileByID(requestBody, fileRange)
 		}
 	}
 	return f, body, err
 }
 
-func (c *B2) tryDownloadFileByID(requestBody []byte) (*File, io.ReadCloser, error) {
-	resp, auth, err := c.authPost("b2_download_file_by_id", bytes.NewReader(requestBody))
+func (c *B2) tryDownloadFileByID(requestBody []byte, fileRange *FileRange) (*File, io.ReadCloser, error) {
+	req, auth, err := c.authRequest("POST", "b2_download_file_by_id", bytes.NewReader(requestBody))
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if fileRange != nil {
+		req.Header.Add("Range", fmt.Sprintf("bytes=%d-%d", fileRange.Start, fileRange.End))
+	}
+
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -228,6 +241,8 @@ func (b *Bucket) FileURL(fileName string) (string, error) {
 	return fileURL, err
 }
 
+// The B2 authRequest method assumes we are making a call to the API endpoint, so here we need to check the
+// authorization again and pass it to the caller so that they can generate an authorized request if needed
 func (b *Bucket) internalFileURL(fileName string) (string, *authorizationState, error) {
 	b.b2.mutex.Lock()
 	defer b.b2.mutex.Unlock()
@@ -240,22 +255,28 @@ func (b *Bucket) internalFileURL(fileName string) (string, *authorizationState, 
 	return b.b2.auth.DownloadURL + "/file/" + b.Name + "/" + fileName, b.b2.auth, nil
 }
 
-// DownloadFileByName Downloads one file by providing the name of the bucket and the name of the
+// DownloadFileByName downloads one file by providing the name of the bucket and the name of the
 // file.
 func (b *Bucket) DownloadFileByName(fileName string) (*File, io.ReadCloser, error) {
+	return b.DownloadFileRangeByName(fileName, nil)
+}
 
-	f, body, err := b.tryDownloadFileByName(fileName)
+// DownloadFileRangeByName downloads part of a file by providing the name of the bucket, the name of the
+// file, and a requested byte range
+func (b *Bucket) DownloadFileRangeByName(fileName string, fileRange *FileRange) (*File, io.ReadCloser, error) {
+
+	f, body, err := b.tryDownloadFileByName(fileName, fileRange)
 
 	// Retry after non-fatal errors
 	if b2err, ok := err.(*B2Error); ok {
 		if !b2err.IsFatal() && !b.b2.NoRetry {
-			return b.tryDownloadFileByName(fileName)
+			return b.tryDownloadFileByName(fileName, fileRange)
 		}
 	}
 	return f, body, err
 }
 
-func (b *Bucket) tryDownloadFileByName(fileName string) (*File, io.ReadCloser, error) {
+func (b *Bucket) tryDownloadFileByName(fileName string, fileRange *FileRange) (*File, io.ReadCloser, error) {
 	// Locate the file
 	fileURL, auth, err := b.internalFileURL(fileName)
 	if err != nil {
@@ -268,6 +289,10 @@ func (b *Bucket) tryDownloadFileByName(fileName string) (*File, io.ReadCloser, e
 		return nil, nil, err
 	}
 	req.Header.Add("Authorization", auth.AuthorizationToken)
+
+	if fileRange != nil {
+		req.Header.Add("Range", fmt.Sprintf("bytes=%d-%d", fileRange.Start, fileRange.End))
+	}
 
 	resp, err := b.b2.httpClient.Do(req)
 	if err != nil {
@@ -288,6 +313,7 @@ func (c *B2) downloadFile(resp *http.Response, auth *authorizationState) (*File,
 
 	switch resp.StatusCode {
 	case 200:
+	case 206:
 	case 401:
 		auth.invalidate()
 		body, err := ioutil.ReadAll(resp.Body)
@@ -327,11 +353,22 @@ func (c *B2) downloadFile(resp *http.Response, auth *authorizationState) (*File,
 		FileInfo:    make(map[string]string),
 	}
 
+	// Parse Content-Length
 	size, err := strconv.ParseInt(resp.Header.Get("Content-Length"), 10, 64)
 	if err != nil {
 		return nil, nil, err
 	}
 	file.ContentLength = size
+
+	// Parse Content-Range
+	contentRange := resp.Header.Get("Content-Range")
+	if contentRange != "" {
+		var start, end int64
+		fmt.Sscanf(contentRange, "bytes=%d-%d", &start, &end)
+		if end-start+1 != file.ContentLength {
+			return nil, nil, fmt.Errorf("Content-Range (%d-%d) does not match Content-Length (%d)", start, end, file.ContentLength)
+		}
+	}
 
 	for k, v := range resp.Header {
 		if strings.HasPrefix(k, "X-Bz-Info-") {

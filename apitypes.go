@@ -155,6 +155,12 @@ type File struct {
 	UploadTimestamp int64             `json:"uploadTimestamp"`
 }
 
+// FileRange describes a range of bytes in a file by its 0-based start and end position (inclusive)
+type FileRange struct {
+	Start int64
+	End   int64
+}
+
 type listFilesRequest struct {
 	BucketID      string `json:"bucketId"`
 	StartFileName string `json:"startFileName"`
