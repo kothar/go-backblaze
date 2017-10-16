@@ -2,6 +2,10 @@
 
 package backblaze
 
+import (
+	"encoding/json"
+)
+
 // B2Error encapsulates an error message returned by the B2 API.
 //
 // Failures to connect to the B2 servers, and networking problems in general can cause errors
@@ -58,12 +62,40 @@ const (
 	Snapshot   BucketType = "snapshot"
 )
 
+// LifecycleRule instructs the B2 service to automatically hide and/or delete old files.
+// You can set up rules to do things like delete old versions of files 30 days after a newer version was uploaded.
+type LifecycleRule struct {
+	DaysFromUploadingToHiding int    `json:"daysFromUploadingToHiding"`
+	DaysFromHidingToDeleting  int    `json:"daysFromHidingToDeleting"`
+	FileNamePrefix            string `json:"fileNamePrefix"`
+}
+
 // BucketInfo describes a bucket
 type BucketInfo struct {
-	ID         string `json:"bucketId"`
-	AccountID  string `json:"accountId"`
-	Name       string `json:"bucketName"`
-	BucketType `json:"bucketType"`
+	// The account that the bucket is in.
+	AccountID string `json:"accountId"`
+
+	// The unique ID of the bucket.
+	ID string `json:"bucketId"`
+
+	// User-defined information to be stored with the bucket.
+	Info json.RawMessage `json:"bucketInfo"`
+
+	// The name to give the new bucket.
+	// Bucket names must be a minimum of 6 and a maximum of 50 characters long, and must be globally unique;
+	// two different B2 accounts cannot have buckets with the name name. Bucket names can consist of: letters,
+	// digits, and "-". Bucket names cannot start with "b2-"; these are reserved for internal Backblaze use.
+	Name string `json:"bucketName"`
+
+	// Either "allPublic", meaning that files in this bucket can be downloaded by anybody, or "allPrivate",
+	// meaning that you need a bucket authorization token to download the files.
+	BucketType BucketType `json:"bucketType"`
+
+	// The initial list of lifecycle rules for this bucket.
+	LifecycleRules []LifecycleRule `json:"lifecycleRules"`
+
+	// A counter that is updated every time the bucket is modified.
+	Revision int `json:"revision"`
 }
 
 type bucketRequest struct {
