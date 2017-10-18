@@ -25,10 +25,17 @@ type UploadAuth struct {
 // a bucket with the same name. Buckets are assigned a unique bucketId which
 // is used when uploading, downloading, or deleting files.
 func (b *B2) CreateBucket(bucketName string, bucketType BucketType) (*Bucket, error) {
+	return b.CreateBucketWithInfo(bucketName, bucketType, nil, nil)
+}
+
+// CreateBucketWithInfo extends CreateBucket to add bucket info and lifecycle rules to the creation request
+func (b *B2) CreateBucketWithInfo(bucketName string, bucketType BucketType, bucketInfo map[string]string, lifecycleRules []LifecycleRule) (*Bucket, error) {
 	request := &createBucketRequest{
-		AccountID:  b.AccountID,
-		BucketName: bucketName,
-		BucketType: bucketType,
+		AccountID:      b.AccountID,
+		BucketName:     bucketName,
+		BucketType:     bucketType,
+		BucketInfo:     bucketInfo,
+		LifecycleRules: lifecycleRules,
 	}
 	response := &BucketInfo{}
 
@@ -104,12 +111,8 @@ func (b *B2) ListBuckets() ([]*Bucket, error) {
 	return buckets, nil
 }
 
-// updateBucket allows the bucket type to be changed
-func (b *B2) updateBucket(bucketID string, bucketType BucketType) (*Bucket, error) {
-	request := &updateBucketRequest{
-		ID:         bucketID,
-		BucketType: bucketType,
-	}
+// UpdateBucket allows properties of a bucket to be modified
+func (b *B2) updateBucket(request *updateBucketRequest) (*Bucket, error) {
 	response := &BucketInfo{}
 
 	if err := b.apiRequest("b2_update_bucket", request, response); err != nil {
@@ -124,8 +127,34 @@ func (b *B2) updateBucket(bucketID string, bucketType BucketType) (*Bucket, erro
 
 // Update allows the bucket type to be changed
 func (b *Bucket) Update(bucketType BucketType) error {
-	_, error := b.b2.updateBucket(b.ID, bucketType)
-	return error
+	return b.UpdateAll(bucketType, nil, nil, 0)
+}
+
+// UpdateAll allows all bucket properties to be changed
+//
+// bucketType (optional) -- One of: "allPublic", "allPrivate". "allPublic" means that anybody can download the files is the bucket;
+// "allPrivate" means that you need an authorization token to download them.
+// If not specified, setting will remain unchanged.
+//
+// bucketInfo (optional) -- User-defined information to be stored with the bucket.
+// If specified, the existing bucket info will be replaced with the new info. If not specified, setting will remain unchanged.
+// Cache-Control policies can be set here on a global level for all the files in the bucket.
+//
+// lifecycleRules (optional) --  The list of lifecycle rules for this bucket.
+// If specified, the existing lifecycle rules will be replaced with this new list. If not specified, setting will remain unchanged.
+//
+// ifRevisionIs (optional) -- When set (> 0), the update will only happen if the revision number stored in the B2 service matches the one passed in.
+// This can be used to avoid having simultaneous updates make conflicting changes.
+func (b *Bucket) UpdateAll(bucketType BucketType, bucketInfo map[string]string, lifecycleRules []LifecycleRule, ifRevisionIs int) error {
+	_, err := b.b2.updateBucket(&updateBucketRequest{
+		AccountID:      b.AccountID,
+		BucketID:       b.ID,
+		BucketType:     bucketType,
+		BucketInfo:     bucketInfo,
+		LifecycleRules: lifecycleRules,
+		IfRevisionIs:   ifRevisionIs,
+	})
+	return err
 }
 
 // Bucket looks up a bucket for the currently authorized client

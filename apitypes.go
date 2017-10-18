@@ -2,10 +2,6 @@
 
 package backblaze
 
-import (
-	"encoding/json"
-)
-
 // B2Error encapsulates an error message returned by the B2 API.
 //
 // Failures to connect to the B2 servers, and networking problems in general can cause errors
@@ -79,7 +75,7 @@ type BucketInfo struct {
 	ID string `json:"bucketId"`
 
 	// User-defined information to be stored with the bucket.
-	Info json.RawMessage `json:"bucketInfo"`
+	Info map[string]string `json:"bucketInfo"`
 
 	// The name to give the new bucket.
 	// Bucket names must be a minimum of 6 and a maximum of 50 characters long, and must be globally unique;
@@ -103,9 +99,11 @@ type bucketRequest struct {
 }
 
 type createBucketRequest struct {
-	AccountID  string `json:"accountId"`
-	BucketName string `json:"bucketName"`
-	BucketType `json:"bucketType"`
+	AccountID      string            `json:"accountId"`
+	BucketName     string            `json:"bucketName"`
+	BucketType     BucketType        `json:"bucketType"`
+	BucketInfo     map[string]string `json:"bucketInfo,omitempty"`
+	LifecycleRules []LifecycleRule   `json:"lifecycleRules,omitempty"`
 }
 
 type deleteBucketRequest struct {
@@ -113,9 +111,14 @@ type deleteBucketRequest struct {
 	BucketID  string `json:"bucketId"`
 }
 
+// updateBucketRequest describes the request parameters that may be provided to the b2_update_bucket API endpoint
 type updateBucketRequest struct {
-	ID         string `json:"bucketId"`
-	BucketType `json:"bucketType"`
+	AccountID      string            `json:"accountId"`                // The account that the bucket is in
+	BucketID       string            `json:"bucketId"`                 // The unique ID of the bucket
+	BucketType     BucketType        `json:"bucketType,omitempty"`     // If not specified, setting will remain unchanged
+	BucketInfo     map[string]string `json:"bucketInfo,omitempty"`     // If not specified, setting will remain unchanged
+	LifecycleRules []LifecycleRule   `json:"lifecycleRules,omitempty"` // If not specified, setting will remain unchanged
+	IfRevisionIs   int               `json:"ifRevisionIs,omitempty"`   // When set, the update will only happen if the revision number stored in the B2 service matches the one passed in
 }
 
 type getUploadURLResponse struct {
