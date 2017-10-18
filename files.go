@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/google/readahead"
+
 	"github.com/pquerna/ffjson/ffjson"
 )
 
@@ -289,6 +291,101 @@ func (b *Bucket) DownloadFileRangeByName(fileName string, fileRange *FileRange) 
 		}
 	}
 	return f, body, err
+}
+
+// ReadaheadFileByName attempts to load chunks of the file being downloaded ahead of time to improve transfer rates.
+// File ranges are downloaded using Content-Range requests. See DownloadFileRangeByName
+func (b *Bucket) ReadaheadFileByName(fileName string) (*File, io.ReadCloser, error) {
+	resp, err := b.ListFileNames(fileName, 1)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(resp.Files) != 1 || resp.Files[0].Name != fileName {
+		return nil, nil, fmt.Errorf("Unable to find file %s in bucket %s", fileName, b.Name)
+	}
+
+	file := &resp.Files[0].File
+	r, err := b.b2.ReadaheadFile(file)
+	return file, r, err
+}
+
+// ReadaheadFile attempts to load chunks of the file being downloaded ahead of time to improve transfer rates.
+// This method attempts to optimise the chunk size based on the file size and a target of 15 workers
+//
+// File ranges are downloaded using Content-Range requests. See DownloadFileRangeByName
+func (c *B2) ReadaheadFile(file *File) (io.ReadCloser, error) {
+	numWorkers := 15
+	chunkSize := int(file.ContentLength / int64(numWorkers*2))
+	if chunkSize < 1<<20 {
+		chunkSize = 1 << 20
+	} else if chunkSize > 10<<20 {
+		chunkSize = 10 << 20
+	}
+	return c.ReadaheadFileOptions(file, chunkSize, numWorkers*2, numWorkers)
+}
+
+// ReadaheadFileOptions attempts to load chunks of the file being downloaded ahead of time to improve transfer rates.
+// This method extends ReadaheadFile with options to configure the chunk size, number of chunks to read ahead
+// and the number of workers to use.
+//
+// File ranges are downloaded using Content-Range requests. See DownloadFileRangeByName
+func (c *B2) ReadaheadFileOptions(file *File, chunkSize, chunkAhead, numWorkers int) (io.ReadCloser, error) {
+	readerAt := &fileReaderAt{
+		b2:   c,
+		file: file,
+	}
+
+	reader := readahead.NewConcurrentReader(file.Name, readerAt, chunkSize, chunkAhead, numWorkers)
+	return reader, nil
+}
+
+type fileReaderAt struct {
+	b2   *B2
+	file *File
+}
+
+func (r *fileReaderAt) ReadAt(p []byte, off int64) (n int, err error) {
+	// Check range being requested is valid
+	// Have we overshot?
+	if off >= r.file.ContentLength {
+		if r.b2.Debug {
+			log.Printf("Requested offset %d is past end of file (%d)", off, r.file.ContentLength)
+		}
+		return 0, io.EOF
+	}
+
+	// Request range from B2
+	fileRange := &FileRange{
+		Start: off,
+		End:   off + int64(len(p)),
+	}
+	if r.b2.Debug {
+		log.Printf("Reading chunk of %d bytes at offset %d", len(p), off)
+	}
+	_, reader, err := r.b2.DownloadFileRangeByID(r.file.ID, fileRange)
+	if err != nil {
+		log.Println(err)
+		return 0, err
+	}
+	defer reader.Close()
+
+	// Read chunk
+	n, err = io.ReadFull(reader, p)
+	if r.b2.Debug {
+		log.Printf("Read %d bytes of %d requested at offset %d", n, len(p), off)
+	}
+	if err != nil {
+		if r.b2.Debug {
+			log.Println(err)
+		}
+	}
+	// Handle last chunk
+	if off+int64(len(p)) > r.file.ContentLength {
+		if int64(n) == r.file.ContentLength-off {
+			err = io.EOF
+		}
+	}
+	return n, err
 }
 
 func (b *Bucket) tryDownloadFileByName(fileName string, fileRange *FileRange) (*File, io.ReadCloser, error) {
