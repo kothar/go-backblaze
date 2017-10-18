@@ -24,6 +24,7 @@ type Options struct {
 
 	// Bucket
 	Bucket string `short:"b" long:"bucket" description:"The bucket name to use for testing (a random bucket name will be chosen if not specified)"`
+	Debug  bool   `short:"d" long:"debug" description:"Show debug information during test"`
 }
 
 var opts = &Options{}
@@ -46,7 +47,7 @@ func main() {
 		AccountID:      opts.AccountID,
 		ApplicationKey: opts.ApplicationKey,
 	})
-	b2.Debug = true
+	b2.Debug = opts.Debug
 	check(err)
 
 	b := testBucketCreate(b2)
