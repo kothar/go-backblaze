@@ -58,12 +58,40 @@ const (
 	Snapshot   BucketType = "snapshot"
 )
 
+// LifecycleRule instructs the B2 service to automatically hide and/or delete old files.
+// You can set up rules to do things like delete old versions of files 30 days after a newer version was uploaded.
+type LifecycleRule struct {
+	DaysFromUploadingToHiding int    `json:"daysFromUploadingToHiding"`
+	DaysFromHidingToDeleting  int    `json:"daysFromHidingToDeleting"`
+	FileNamePrefix            string `json:"fileNamePrefix"`
+}
+
 // BucketInfo describes a bucket
 type BucketInfo struct {
-	ID         string `json:"bucketId"`
-	AccountID  string `json:"accountId"`
-	Name       string `json:"bucketName"`
-	BucketType `json:"bucketType"`
+	// The account that the bucket is in.
+	AccountID string `json:"accountId"`
+
+	// The unique ID of the bucket.
+	ID string `json:"bucketId"`
+
+	// User-defined information to be stored with the bucket.
+	Info map[string]string `json:"bucketInfo"`
+
+	// The name to give the new bucket.
+	// Bucket names must be a minimum of 6 and a maximum of 50 characters long, and must be globally unique;
+	// two different B2 accounts cannot have buckets with the name name. Bucket names can consist of: letters,
+	// digits, and "-". Bucket names cannot start with "b2-"; these are reserved for internal Backblaze use.
+	Name string `json:"bucketName"`
+
+	// Either "allPublic", meaning that files in this bucket can be downloaded by anybody, or "allPrivate",
+	// meaning that you need a bucket authorization token to download the files.
+	BucketType BucketType `json:"bucketType"`
+
+	// The initial list of lifecycle rules for this bucket.
+	LifecycleRules []LifecycleRule `json:"lifecycleRules"`
+
+	// A counter that is updated every time the bucket is modified.
+	Revision int `json:"revision"`
 }
 
 type bucketRequest struct {
@@ -71,9 +99,11 @@ type bucketRequest struct {
 }
 
 type createBucketRequest struct {
-	AccountID  string `json:"accountId"`
-	BucketName string `json:"bucketName"`
-	BucketType `json:"bucketType"`
+	AccountID      string            `json:"accountId"`
+	BucketName     string            `json:"bucketName"`
+	BucketType     BucketType        `json:"bucketType"`
+	BucketInfo     map[string]string `json:"bucketInfo,omitempty"`
+	LifecycleRules []LifecycleRule   `json:"lifecycleRules,omitempty"`
 }
 
 type deleteBucketRequest struct {
@@ -81,9 +111,14 @@ type deleteBucketRequest struct {
 	BucketID  string `json:"bucketId"`
 }
 
+// updateBucketRequest describes the request parameters that may be provided to the b2_update_bucket API endpoint
 type updateBucketRequest struct {
-	ID         string `json:"bucketId"`
-	BucketType `json:"bucketType"`
+	AccountID      string            `json:"accountId"`                // The account that the bucket is in
+	BucketID       string            `json:"bucketId"`                 // The unique ID of the bucket
+	BucketType     BucketType        `json:"bucketType,omitempty"`     // If not specified, setting will remain unchanged
+	BucketInfo     map[string]string `json:"bucketInfo,omitempty"`     // If not specified, setting will remain unchanged
+	LifecycleRules []LifecycleRule   `json:"lifecycleRules,omitempty"` // If not specified, setting will remain unchanged
+	IfRevisionIs   int               `json:"ifRevisionIs,omitempty"`   // When set, the update will only happen if the revision number stored in the B2 service matches the one passed in
 }
 
 type getUploadURLResponse struct {
@@ -95,6 +130,7 @@ type getUploadURLResponse struct {
 type listBucketsResponse struct {
 	Buckets []*BucketInfo `json:"buckets"`
 }
+
 type fileRequest struct {
 	ID string `json:"fileId"`
 }
@@ -106,20 +142,25 @@ type fileVersionRequest struct {
 
 // File descibes a file stored in a B2 bucket
 type File struct {
-	ID            string            `json:"fileId"`
-	Name          string            `json:"fileName"`
-	AccountID     string            `json:"accountId"`
-	BucketID      string            `json:"bucketId"`
-	ContentLength int64             `json:"contentLength"`
-	ContentSha1   string            `json:"contentSha1"`
-	ContentType   string            `json:"contentType"`
-	FileInfo      map[string]string `json:"fileInfo"`
+	ID              string            `json:"fileId"`
+	Name            string            `json:"fileName"`
+	AccountID       string            `json:"accountId"`
+	BucketID        string            `json:"bucketId"`
+	ContentLength   int64             `json:"contentLength"`
+	ContentSha1     string            `json:"contentSha1"`
+	ContentType     string            `json:"contentType"`
+	FileInfo        map[string]string `json:"fileInfo"`
+	Action          FileAction        `json:"action"`
+	Size            int               `json:"size"` // Deprecated - same as ContentSha1
+	UploadTimestamp int64             `json:"uploadTimestamp"`
 }
 
 type listFilesRequest struct {
 	BucketID      string `json:"bucketId"`
 	StartFileName string `json:"startFileName"`
 	MaxFileCount  int    `json:"maxFileCount"`
+	Prefix        string `json:"prefix,omitempty"`
+	Delimiter     string `json:"delimiter,omitempty"`
 }
 
 // ListFilesResponse lists a page of files stored in a B2 bucket
@@ -132,7 +173,7 @@ type listFileVersionsRequest struct {
 	BucketID      string `json:"bucketId"`
 	StartFileName string `json:"startFileName,omitempty"`
 	StartFileID   string `json:"startFileId,omitempty"`
-	MaxFileCount  int    `json:"maxFileCount"`
+	MaxFileCount  int    `json:"maxFileCount,omitempty"`
 }
 
 // ListFileVersionsResponse lists a page of file versions stored in a B2 bucket
@@ -160,12 +201,7 @@ const (
 	Hide   FileAction = "hide"
 )
 
-// FileStatus describes minimal metadata about a file in a B2 bucket.
-// It is returned by the ListFileNames and ListFileVersions methods
+// FileStatus is now identical to File in repsonses from ListFileNames and ListFileVersions
 type FileStatus struct {
-	FileAction      `json:"action"`
-	ID              string `json:"fileId"`
-	Name            string `json:"fileName"`
-	Size            int    `json:"size"`
-	UploadTimestamp int64  `json:"uploadTimestamp"`
+	File
 }

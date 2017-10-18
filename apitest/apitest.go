@@ -6,6 +6,9 @@ import (
 	"log"
 	"math/rand"
 	"os"
+	"reflect"
+	"strconv"
+	"sync"
 	"time"
 
 	"github.com/jessevdk/go-flags"
@@ -47,11 +50,16 @@ func main() {
 
 	b := testBucketCreate(b2)
 
+	// Test basic file operations
 	f, data := testFileUpload(b)
-
 	testFileDownload(b, f, data)
-
 	testFileDelete(b, f)
+
+	// Test file listing calls
+	files := uploadFiles(b)
+	testListFiles(b, files)
+	testListDirectories(b, files)
+	deleteFiles(b, files)
 
 	testBucketDelete(b)
 }
@@ -111,6 +119,105 @@ func testFileDelete(b *backblaze.Bucket, f *backblaze.File) {
 	check(err)
 
 	log.Print("File deleted")
+}
+
+func uploadFiles(b *backblaze.Bucket) []*backblaze.File {
+	fileData := randBytes(1024)
+
+	files := []*backblaze.File{}
+
+	queue := make(chan int64)
+	var m sync.Mutex
+	var wg sync.WaitGroup
+
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			for n := range queue {
+				f, err := b.UploadFile("test/file_"+strconv.FormatInt(n, 10), nil, bytes.NewBuffer(fileData))
+				check(err)
+
+				m.Lock()
+				files = append(files, f)
+				m.Unlock()
+			}
+
+			wg.Done()
+		}()
+	}
+
+	// Upload files
+	count := 40
+	for i := 1; i <= count; i++ {
+		log.Printf("Uploading file %d/%d...", i, count)
+		queue <- int64(i)
+	}
+
+	close(queue)
+	wg.Wait()
+	log.Println("Done.")
+
+	return files
+}
+
+func testListFiles(b *backblaze.Bucket, files []*backblaze.File) {
+
+	// List bucket content
+	log.Println("Listing bucket contents")
+	bulkResponse, err := b.ListFileNames("", 500)
+	check(err)
+	if len(bulkResponse.Files) != len(files) {
+		log.Fatalf("Expected listing to return %d files but found %d", len(files), len(bulkResponse.Files))
+	}
+
+	// Test paging
+	log.Println("Paging bucket contents")
+	pagedFiles := []backblaze.FileStatus{}
+	cursor := ""
+	for {
+		r, err := b.ListFileNames(cursor, 10)
+		check(err)
+
+		pagedFiles = append(pagedFiles, r.Files...)
+
+		if r.NextFileName == "" {
+			break
+		}
+
+		cursor = r.NextFileName
+	}
+
+	if !reflect.DeepEqual(bulkResponse.Files, pagedFiles) {
+		log.Fatalf("Result of paged directory listing does not match bulk listing")
+	}
+}
+
+func testListDirectories(b *backblaze.Bucket, files []*backblaze.File) {
+	// List root directory
+	log.Println("Listing root directory contents")
+	bulkResponse, err := b.ListFileNamesWithPrefix("", 500, "", "/")
+	check(err)
+	if len(bulkResponse.Files) != 1 {
+		log.Fatalf("Expected listing to return 1 directory but found %d", len(bulkResponse.Files))
+	}
+
+	// List subdirectory
+	log.Println("Listing subdirectory contents")
+	bulkResponse, err = b.ListFileNamesWithPrefix("", 500, "test/", "/")
+	check(err)
+	if len(bulkResponse.Files) != len(files) {
+		log.Fatalf("Expected listing to return %d files but found %d", len(files), len(bulkResponse.Files))
+	}
+}
+
+func deleteFiles(b *backblaze.Bucket, files []*backblaze.File) {
+	// Delete files
+	log.Printf("Deleting %d files...", len(files))
+	for _, f := range files {
+		_, err := b.DeleteFileVersion(f.Name, f.ID)
+		check(err)
+	}
+	log.Println("Done.")
 }
 
 func check(err error) {
