@@ -18,11 +18,36 @@ import (
 )
 
 // ListFileNames lists the names of all files in a bucket, starting at a given name.
+//
+// See ListFileNamesWithPrefix
 func (b *Bucket) ListFileNames(startFileName string, maxFileCount int) (*ListFilesResponse, error) {
+	return b.ListFileNamesWithPrefix(startFileName, maxFileCount, "", "")
+}
+
+// ListFileNamesWithPrefix lists the names of all files in a bucket, starting at a given name.
+//
+// This call returns at most 1000 file names per transaction, but it can be called repeatedly to scan through all of the file names in a bucket.
+// Each time you call, it returns a "nextFileName" that can be used as the starting point for the next call.
+//
+// If you set maxFileCount to more than 1000 (max 10,000) and more than 1000 are returned, the call will be billed as multiple transactions,
+// as if you had made requests in a loop asking for 1000 at a time.
+//
+// Files returned will be limited to those with the given prefix. The empty string matches all files.
+//
+// If a delimiter is provided, files returned will be limited to those within the top folder, or any one subfolder.
+// Folder names will also be returned. The delimiter character will be used to "break" file names into folders.
+func (b *Bucket) ListFileNamesWithPrefix(startFileName string, maxFileCount int, prefix, delimiter string) (*ListFilesResponse, error) {
+
+	if maxFileCount > 10000 || maxFileCount < 0 {
+		return nil, fmt.Errorf("maxFileCount must be in range 0 to 10,000")
+	}
+
 	request := &listFilesRequest{
 		BucketID:      b.ID,
 		StartFileName: startFileName,
 		MaxFileCount:  maxFileCount,
+		Prefix:        prefix,
+		Delimiter:     delimiter,
 	}
 	response := &ListFilesResponse{}
 

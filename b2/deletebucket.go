@@ -14,6 +14,10 @@ func init() {
 
 // Execute the deletebucket command
 func (o *DeleteBucket) Execute(args []string) error {
+	if opts.Bucket == "" {
+		return fmt.Errorf("No bucket specified")
+	}
+
 	client, err := Client()
 	if err != nil {
 		return err
@@ -22,6 +26,9 @@ func (o *DeleteBucket) Execute(args []string) error {
 	bucket, err := client.Bucket(opts.Bucket)
 	if err != nil {
 		return err
+	}
+	if bucket == nil {
+		return fmt.Errorf("Bucket not found: %s", opts.Bucket)
 	}
 
 	if err = bucket.Delete(); err != nil {

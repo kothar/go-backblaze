@@ -127,6 +127,7 @@ type getUploadURLResponse struct {
 type listBucketsResponse struct {
 	Buckets []*BucketInfo `json:"buckets"`
 }
+
 type fileRequest struct {
 	ID string `json:"fileId"`
 }
@@ -138,20 +139,25 @@ type fileVersionRequest struct {
 
 // File descibes a file stored in a B2 bucket
 type File struct {
-	ID            string            `json:"fileId"`
-	Name          string            `json:"fileName"`
-	AccountID     string            `json:"accountId"`
-	BucketID      string            `json:"bucketId"`
-	ContentLength int64             `json:"contentLength"`
-	ContentSha1   string            `json:"contentSha1"`
-	ContentType   string            `json:"contentType"`
-	FileInfo      map[string]string `json:"fileInfo"`
+	ID              string            `json:"fileId"`
+	Name            string            `json:"fileName"`
+	AccountID       string            `json:"accountId"`
+	BucketID        string            `json:"bucketId"`
+	ContentLength   int64             `json:"contentLength"`
+	ContentSha1     string            `json:"contentSha1"`
+	ContentType     string            `json:"contentType"`
+	FileInfo        map[string]string `json:"fileInfo"`
+	Action          FileAction        `json:"action"`
+	Size            int               `json:"size"` // Deprecated - same as ContentSha1
+	UploadTimestamp int64             `json:"uploadTimestamp"`
 }
 
 type listFilesRequest struct {
 	BucketID      string `json:"bucketId"`
 	StartFileName string `json:"startFileName"`
 	MaxFileCount  int    `json:"maxFileCount"`
+	Prefix        string `json:"prefix,omitempty"`
+	Delimiter     string `json:"delimiter,omitempty"`
 }
 
 // ListFilesResponse lists a page of files stored in a B2 bucket
@@ -164,7 +170,7 @@ type listFileVersionsRequest struct {
 	BucketID      string `json:"bucketId"`
 	StartFileName string `json:"startFileName,omitempty"`
 	StartFileID   string `json:"startFileId,omitempty"`
-	MaxFileCount  int    `json:"maxFileCount"`
+	MaxFileCount  int    `json:"maxFileCount,omitempty"`
 }
 
 // ListFileVersionsResponse lists a page of file versions stored in a B2 bucket
@@ -192,12 +198,7 @@ const (
 	Hide   FileAction = "hide"
 )
 
-// FileStatus describes minimal metadata about a file in a B2 bucket.
-// It is returned by the ListFileNames and ListFileVersions methods
+// FileStatus is now identical to File in repsonses from ListFileNames and ListFileVersions
 type FileStatus struct {
-	FileAction      `json:"action"`
-	ID              string `json:"fileId"`
-	Name            string `json:"fileName"`
-	Size            int    `json:"size"`
-	UploadTimestamp int64  `json:"uploadTimestamp"`
+	File
 }
