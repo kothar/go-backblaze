@@ -2,6 +2,7 @@
 package main
 
 import (
+	"flag"
 	"os"
 
 	"github.com/jessevdk/go-flags"
@@ -27,6 +28,7 @@ var opts = &Options{}
 var parser = flags.NewParser(opts, flags.Default)
 
 func main() {
+	flag.Parse()
 	_, err := parser.Parse()
 	if err != nil {
 		os.Exit(1)

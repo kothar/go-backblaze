@@ -10,13 +10,13 @@ func TestListBuckets(T *testing.T) {
 	bucketID := "bucketid"
 
 	client, server := prepareResponses([]response{
-		{200, authorizeAccountResponse{
+		{code: 200, body: authorizeAccountResponse{
 			AccountID:          accountID,
 			APIEndpoint:        "http://api.url",
 			AuthorizationToken: "testToken",
 			DownloadURL:        "http://download.url",
 		}},
-		{200, listBucketsResponse{
+		{code: 200, body: listBucketsResponse{
 			Buckets: []*BucketInfo{
 				&BucketInfo{
 					ID:         bucketID,

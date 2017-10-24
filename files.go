@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/google/readahead"
+
 	"github.com/pquerna/ffjson/ffjson"
 )
 
@@ -193,28 +195,50 @@ func (b *Bucket) GetFileInfo(fileID string) (*File, error) {
 
 // DownloadFileByID downloads a file from B2 using its unique ID
 func (c *B2) DownloadFileByID(fileID string) (*File, io.ReadCloser, error) {
+	return c.DownloadFileRangeByID(fileID, nil)
+}
+
+// DownloadFileRangeByID downloads part of a file from B2 using its unique ID and a requested byte range.
+func (c *B2) DownloadFileRangeByID(fileID string, fileRange *FileRange) (*File, io.ReadCloser, error) {
 
 	request := &fileRequest{
 		ID: fileID,
 	}
+
+	if c.Debug {
+		fmt.Println("---")
+		fmt.Printf("  Download by ID: %s\n", fileID)
+		fmt.Printf("           Range: %+v\n", fileRange)
+		fmt.Printf("         Request: %+v\n", request)
+	}
+
 	requestBody, err := ffjson.Marshal(request)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	f, body, err := c.tryDownloadFileByID(requestBody)
+	f, body, err := c.tryDownloadFileByID(requestBody, fileRange)
 
 	// Retry after non-fatal errors
 	if b2err, ok := err.(*B2Error); ok {
 		if !b2err.IsFatal() && !c.NoRetry {
-			return c.tryDownloadFileByID(requestBody)
+			return c.tryDownloadFileByID(requestBody, fileRange)
 		}
 	}
 	return f, body, err
 }
 
-func (c *B2) tryDownloadFileByID(requestBody []byte) (*File, io.ReadCloser, error) {
-	resp, auth, err := c.authPost("b2_download_file_by_id", bytes.NewReader(requestBody))
+func (c *B2) tryDownloadFileByID(requestBody []byte, fileRange *FileRange) (*File, io.ReadCloser, error) {
+	req, auth, err := c.authRequest("POST", "b2_download_file_by_id", bytes.NewReader(requestBody))
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if fileRange != nil {
+		req.Header.Add("Range", fmt.Sprintf("bytes=%d-%d", fileRange.Start, fileRange.End))
+	}
+
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -228,6 +252,8 @@ func (b *Bucket) FileURL(fileName string) (string, error) {
 	return fileURL, err
 }
 
+// The B2 authRequest method assumes we are making a call to the API endpoint, so here we need to check the
+// authorization again and pass it to the caller so that they can generate an authorized request if needed
 func (b *Bucket) internalFileURL(fileName string) (string, *authorizationState, error) {
 	b.b2.mutex.Lock()
 	defer b.b2.mutex.Unlock()
@@ -240,26 +266,137 @@ func (b *Bucket) internalFileURL(fileName string) (string, *authorizationState, 
 	return b.b2.auth.DownloadURL + "/file/" + b.Name + "/" + fileName, b.b2.auth, nil
 }
 
-// DownloadFileByName Downloads one file by providing the name of the bucket and the name of the
+// DownloadFileByName downloads one file by providing the name of the bucket and the name of the
 // file.
 func (b *Bucket) DownloadFileByName(fileName string) (*File, io.ReadCloser, error) {
+	return b.DownloadFileRangeByName(fileName, nil)
+}
 
-	f, body, err := b.tryDownloadFileByName(fileName)
+// DownloadFileRangeByName downloads part of a file by providing the name of the bucket, the name of the
+// file, and a requested byte range
+func (b *Bucket) DownloadFileRangeByName(fileName string, fileRange *FileRange) (*File, io.ReadCloser, error) {
+
+	if b.b2.Debug {
+		fmt.Println("---")
+		fmt.Printf("  Download by name: %s/%s\n", b.Name, fileName)
+		fmt.Printf("             Range: %+v\n", fileRange)
+	}
+
+	f, body, err := b.tryDownloadFileByName(fileName, fileRange)
 
 	// Retry after non-fatal errors
 	if b2err, ok := err.(*B2Error); ok {
 		if !b2err.IsFatal() && !b.b2.NoRetry {
-			return b.tryDownloadFileByName(fileName)
+			return b.tryDownloadFileByName(fileName, fileRange)
 		}
 	}
 	return f, body, err
 }
 
-func (b *Bucket) tryDownloadFileByName(fileName string) (*File, io.ReadCloser, error) {
+// ReadaheadFileByName attempts to load chunks of the file being downloaded ahead of time to improve transfer rates.
+// File ranges are downloaded using Content-Range requests. See DownloadFileRangeByName
+func (b *Bucket) ReadaheadFileByName(fileName string) (*File, io.ReadCloser, error) {
+	resp, err := b.ListFileNames(fileName, 1)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(resp.Files) != 1 || resp.Files[0].Name != fileName {
+		return nil, nil, fmt.Errorf("Unable to find file %s in bucket %s", fileName, b.Name)
+	}
+
+	file := &resp.Files[0].File
+	r, err := b.b2.ReadaheadFile(file)
+	return file, r, err
+}
+
+// ReadaheadFile attempts to load chunks of the file being downloaded ahead of time to improve transfer rates.
+// This method attempts to optimise the chunk size based on the file size and a target of 15 workers
+//
+// File ranges are downloaded using Content-Range requests. See DownloadFileRangeByName
+func (c *B2) ReadaheadFile(file *File) (io.ReadCloser, error) {
+	numWorkers := 15
+	chunkSize := int(file.ContentLength / int64(numWorkers*2))
+	if chunkSize < 1<<20 {
+		chunkSize = 1 << 20
+	} else if chunkSize > 10<<20 {
+		chunkSize = 10 << 20
+	}
+	return c.ReadaheadFileOptions(file, chunkSize, numWorkers*2, numWorkers)
+}
+
+// ReadaheadFileOptions attempts to load chunks of the file being downloaded ahead of time to improve transfer rates.
+// This method extends ReadaheadFile with options to configure the chunk size, number of chunks to read ahead
+// and the number of workers to use.
+//
+// File ranges are downloaded using Content-Range requests. See DownloadFileRangeByName
+func (c *B2) ReadaheadFileOptions(file *File, chunkSize, chunkAhead, numWorkers int) (io.ReadCloser, error) {
+	readerAt := &fileReaderAt{
+		b2:   c,
+		file: file,
+	}
+
+	reader := readahead.NewConcurrentReader(file.Name, readerAt, chunkSize, chunkAhead, numWorkers)
+	return reader, nil
+}
+
+type fileReaderAt struct {
+	b2   *B2
+	file *File
+}
+
+func (r *fileReaderAt) ReadAt(p []byte, off int64) (n int, err error) {
+	// Check range being requested is valid
+	// Have we overshot?
+	if off >= r.file.ContentLength {
+		if r.b2.Debug {
+			log.Printf("Requested offset %d is past end of file (%d)", off, r.file.ContentLength)
+		}
+		return 0, io.EOF
+	}
+
+	// Request range from B2
+	fileRange := &FileRange{
+		Start: off,
+		End:   off + int64(len(p)),
+	}
+	if r.b2.Debug {
+		log.Printf("Reading chunk of %d bytes at offset %d", len(p), off)
+	}
+	_, reader, err := r.b2.DownloadFileRangeByID(r.file.ID, fileRange)
+	if err != nil {
+		log.Println(err)
+		return 0, err
+	}
+	defer reader.Close()
+
+	// Read chunk
+	n, err = io.ReadFull(reader, p)
+	if r.b2.Debug {
+		log.Printf("Read %d bytes of %d requested at offset %d", n, len(p), off)
+	}
+	if err != nil {
+		if r.b2.Debug {
+			log.Println(err)
+		}
+	}
+	// Handle last chunk
+	if off+int64(len(p)) > r.file.ContentLength {
+		if int64(n) == r.file.ContentLength-off {
+			err = io.EOF
+		}
+	}
+	return n, err
+}
+
+func (b *Bucket) tryDownloadFileByName(fileName string, fileRange *FileRange) (*File, io.ReadCloser, error) {
 	// Locate the file
 	fileURL, auth, err := b.internalFileURL(fileName)
 	if err != nil {
 		return nil, nil, err
+	}
+
+	if b.b2.Debug {
+		fmt.Printf("  Download URL: %s\n", fileURL)
 	}
 
 	// Make the download request
@@ -268,6 +405,10 @@ func (b *Bucket) tryDownloadFileByName(fileName string) (*File, io.ReadCloser, e
 		return nil, nil, err
 	}
 	req.Header.Add("Authorization", auth.AuthorizationToken)
+
+	if fileRange != nil {
+		req.Header.Add("Range", fmt.Sprintf("bytes=%d-%d", fileRange.Start, fileRange.End))
+	}
 
 	resp, err := b.b2.httpClient.Do(req)
 	if err != nil {
@@ -286,8 +427,14 @@ func (c *B2) downloadFile(resp *http.Response, auth *authorizationState) (*File,
 		}
 	}()
 
+	if c.Debug {
+		fmt.Printf("  Response status: %d\n", resp.StatusCode)
+		fmt.Printf("          Headers: %+v\n", resp.Header)
+	}
+
 	switch resp.StatusCode {
 	case 200:
+	case 206:
 	case 401:
 		auth.invalidate()
 		body, err := ioutil.ReadAll(resp.Body)
@@ -327,11 +474,25 @@ func (c *B2) downloadFile(resp *http.Response, auth *authorizationState) (*File,
 		FileInfo:    make(map[string]string),
 	}
 
+	// Parse Content-Length
 	size, err := strconv.ParseInt(resp.Header.Get("Content-Length"), 10, 64)
 	if err != nil {
 		return nil, nil, err
 	}
 	file.ContentLength = size
+
+	// Parse Content-Range
+	contentRange := resp.Header.Get("Content-Range")
+	if contentRange != "" {
+		var start, end, total int64
+		_, err := fmt.Sscanf(contentRange, "bytes %d-%d/%d", &start, &end, &total)
+		if err != nil {
+			return nil, nil, fmt.Errorf("Unable to parse Content-Range header: %s", err)
+		}
+		if end-start+1 != file.ContentLength {
+			return nil, nil, fmt.Errorf("Content-Range (%d-%d) does not match Content-Length (%d)", start, end, file.ContentLength)
+		}
+	}
 
 	for k, v := range resp.Header {
 		if strings.HasPrefix(k, "X-Bz-Info-") {

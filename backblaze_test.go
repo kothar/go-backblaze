@@ -12,8 +12,9 @@ import (
 )
 
 type response struct {
-	code int
-	body interface{}
+	code    int
+	body    interface{}
+	headers map[string]string
 }
 
 // Based on http://keighl.com/post/mocking-http-responses-in-golang/
@@ -29,9 +30,16 @@ func prepareResponses(responses []response) (*http.Client, *httptest.Server) {
 		next := responses[0]
 		responses = responses[1:]
 
+		for k, v := range next.headers {
+			w.Header().Add(k, v)
+		}
 		w.WriteHeader(next.code)
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, toJSON(next.body))
+		if body, ok := next.body.([]byte); ok {
+			w.Write(body)
+		} else {
+			fmt.Fprint(w, toJSON(next.body))
+		}
 	}))
 
 	// Make a transport that reroutes all traffic to the example server
@@ -69,7 +77,7 @@ func TestAuth(T *testing.T) {
 	downloadURL := "http://download.url"
 
 	client, server := prepareResponses([]response{
-		{200, authorizeAccountResponse{
+		{code: 200, body: authorizeAccountResponse{
 			AccountID:          accountID,
 			APIEndpoint:        apiURL,
 			AuthorizationToken: token,
@@ -112,24 +120,24 @@ func TestReAuth(T *testing.T) {
 	token2 := "testToken2"
 
 	client, server := prepareResponses([]response{
-		{200, authorizeAccountResponse{
+		{code: 200, body: authorizeAccountResponse{
 			AccountID:          accountID,
 			APIEndpoint:        "http://api.url",
 			AuthorizationToken: "testToken",
 			DownloadURL:        "http://download.url",
 		}},
-		{401, B2Error{
+		{code: 401, body: B2Error{
 			Status:  401,
 			Code:    "expired_auth_token",
 			Message: "Authentication token expired",
 		}},
-		{200, authorizeAccountResponse{
+		{code: 200, body: authorizeAccountResponse{
 			AccountID:          accountID,
 			APIEndpoint:        "http://api.url",
 			AuthorizationToken: token2,
 			DownloadURL:        "http://download.url",
 		}},
-		{200, listBucketsResponse{
+		{code: 200, body: listBucketsResponse{
 			Buckets: []*BucketInfo{
 				&BucketInfo{
 					ID:         bucketID,

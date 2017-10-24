@@ -24,9 +24,10 @@ import (
 
 // Get is a command
 type Get struct {
-	Threads int    `short:"j" long:"threads" default:"5" description:"Maximum simultaneous downloads to process"`
-	Output  string `short:"o" long:"output" default:"." description:"Output file name or directory"`
-	Discard bool   `long:"discard" description:"Discard downloaded data"`
+	Threads     int    `short:"j" long:"threads" default:"5" description:"Maximum simultaneous downloads to process"`
+	Output      string `short:"o" long:"output" default:"." description:"Output file name or directory"`
+	Discard     bool   `long:"discard" description:"Discard downloaded data"`
+	NoReadahead bool   `long:"noreadahead" description:"Disable parallel readahead for large files"`
 }
 
 func init() {
@@ -86,7 +87,18 @@ func (o *Get) Execute(args []string) error {
 		group.Add(1)
 		go func() {
 			for file := range tasks {
-				fileInfo, reader, err := bucket.DownloadFileByName(file)
+
+				var (
+					fileInfo *backblaze.File
+					reader   io.ReadCloser
+					err      error
+				)
+
+				if o.NoReadahead {
+					fileInfo, reader, err = bucket.DownloadFileByName(file)
+				} else {
+					fileInfo, reader, err = bucket.ReadaheadFileByName(file)
+				}
 				if err != nil {
 					fmt.Println(err)
 					// TODO terminate on errors
