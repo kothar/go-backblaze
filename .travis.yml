@@ -10,7 +10,8 @@ go:
   - 1.7.x
   - 1.8.x
   - 1.9.x
-  - tip
+  - 1.10.x
+  - 1.11.x
 
 before_install:
   # our 'canonical import path' is gopkg.in-based, not github.com
