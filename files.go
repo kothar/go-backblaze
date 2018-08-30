@@ -164,6 +164,9 @@ func (b *Bucket) UploadHashedTypedFile(
 		return nil, err
 	}
 
+	// Place the UploadAuth back in the pool
+	b.ReturnUploadAuth(auth)
+
 	result := &File{}
 
 	// We are not dealing with the b2 client auth token in this case, hence the nil auth

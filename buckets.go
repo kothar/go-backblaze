@@ -9,10 +9,13 @@ import (
 type Bucket struct {
 	*BucketInfo
 
+	uploadAuthPool chan *UploadAuth
+
 	b2 *B2
 }
 
 // UploadAuth encapsulates the details needed to upload a file to B2
+// These are pooled and must be returned when complete.
 type UploadAuth struct {
 	AuthorizationToken string
 	UploadURL          *url.URL
@@ -44,8 +47,9 @@ func (b *B2) CreateBucketWithInfo(bucketName string, bucketType BucketType, buck
 	}
 
 	bucket := &Bucket{
-		BucketInfo: response,
-		b2:         b,
+		BucketInfo:     response,
+		uploadAuthPool: make(chan *UploadAuth, 100),
+		b2:             b,
 	}
 
 	return bucket, nil
@@ -65,8 +69,9 @@ func (b *B2) deleteBucket(bucketID string) (*Bucket, error) {
 	}
 
 	return &Bucket{
-		BucketInfo: response,
-		b2:         b,
+		BucketInfo:     response,
+		uploadAuthPool: make(chan *UploadAuth, 100),
+		b2:             b,
 	}, nil
 }
 
@@ -93,8 +98,9 @@ func (b *B2) ListBuckets() ([]*Bucket, error) {
 	buckets := make([]*Bucket, len(response.Buckets))
 	for i, info := range response.Buckets {
 		bucket := &Bucket{
-			BucketInfo: info,
-			b2:         b,
+			BucketInfo:     info,
+			uploadAuthPool: make(chan *UploadAuth, 100),
+			b2:             b,
 		}
 
 		switch info.BucketType {
@@ -120,8 +126,9 @@ func (b *B2) updateBucket(request *updateBucketRequest) (*Bucket, error) {
 	}
 
 	return &Bucket{
-		BucketInfo: response,
-		b2:         b,
+		BucketInfo:     response,
+		uploadAuthPool: make(chan *UploadAuth, 100),
+		b2:             b,
 	}, nil
 }
 
@@ -177,26 +184,50 @@ func (b *B2) Bucket(bucketName string) (*Bucket, error) {
 //
 // When you upload a file to B2, you must call b2_get_upload_url first to get
 // the URL for uploading directly to the place where the file will be stored.
+//
+// If the upload is successful, ReturnUploadAuth(*uploadAuth) should be called
+// to place it back in the pool for reuse.
 func (b *Bucket) GetUploadAuth() (*UploadAuth, error) {
-	request := &bucketRequest{
-		ID: b.ID,
-	}
+	select {
+	// Pop an UploadAuth from the pool
+	case auth := <-b.uploadAuthPool:
+		return auth, nil
 
-	response := &getUploadURLResponse{}
-	if err := b.b2.apiRequest("b2_get_upload_url", request, response); err != nil {
-		return nil, err
-	}
+	// If none are available, make a new one
+	default:
+		// Make a new one
+		request := &bucketRequest{
+			ID: b.ID,
+		}
 
-	// Set bucket auth
-	uploadURL, err := url.Parse(response.UploadURL)
-	if err != nil {
-		return nil, err
-	}
-	auth := &UploadAuth{
-		AuthorizationToken: response.AuthorizationToken,
-		UploadURL:          uploadURL,
-		Valid:              true,
-	}
+		response := &getUploadURLResponse{}
+		if err := b.b2.apiRequest("b2_get_upload_url", request, response); err != nil {
+			return nil, err
+		}
 
-	return auth, nil
+		// Set bucket auth
+		uploadURL, err := url.Parse(response.UploadURL)
+		if err != nil {
+			return nil, err
+		}
+		auth := &UploadAuth{
+			AuthorizationToken: response.AuthorizationToken,
+			UploadURL:          uploadURL,
+			Valid:              true,
+		}
+
+		return auth, nil
+	}
+}
+
+// ReturnUploadAuth returns an upload URL to the available pool.
+// This should not be called if the upload fails.
+// Instead request another GetUploadAuth() and retry.
+func (b *Bucket) ReturnUploadAuth(uploadAuth *UploadAuth) {
+	if uploadAuth.Valid {
+		select {
+		case b.uploadAuthPool <- uploadAuth:
+		default:
+		}
+	}
 }
