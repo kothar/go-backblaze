@@ -48,7 +48,7 @@ func (b *B2) CreateBucketWithInfo(bucketName string, bucketType BucketType, buck
 
 	bucket := &Bucket{
 		BucketInfo:     response,
-		uploadAuthPool: make(chan *UploadAuth, 100),
+		uploadAuthPool: make(chan *UploadAuth, b.MaxIdleUploads),
 		b2:             b,
 	}
 
@@ -70,7 +70,7 @@ func (b *B2) deleteBucket(bucketID string) (*Bucket, error) {
 
 	return &Bucket{
 		BucketInfo:     response,
-		uploadAuthPool: make(chan *UploadAuth, 100),
+		uploadAuthPool: make(chan *UploadAuth, b.MaxIdleUploads),
 		b2:             b,
 	}, nil
 }
@@ -99,7 +99,7 @@ func (b *B2) ListBuckets() ([]*Bucket, error) {
 	for i, info := range response.Buckets {
 		bucket := &Bucket{
 			BucketInfo:     info,
-			uploadAuthPool: make(chan *UploadAuth, 100),
+			uploadAuthPool: make(chan *UploadAuth, b.MaxIdleUploads),
 			b2:             b,
 		}
 
@@ -127,7 +127,7 @@ func (b *B2) updateBucket(request *updateBucketRequest) (*Bucket, error) {
 
 	return &Bucket{
 		BucketInfo:     response,
-		uploadAuthPool: make(chan *UploadAuth, 100),
+		uploadAuthPool: make(chan *UploadAuth, b.MaxIdleUploads),
 		b2:             b,
 	}, nil
 }
