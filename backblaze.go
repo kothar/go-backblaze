@@ -39,11 +39,15 @@ type B2 struct {
 	// If true, display debugging information about API calls
 	Debug bool
 
+	// Number of MaxIdleUploads to keep for reuse.
+	// This must be set prior to creating a bucket struct
+	MaxIdleUploads int
+
 	// State
 	mutex      sync.Mutex
 	host       string
 	auth       *authorizationState
-	httpClient http.Client
+	httpClient *http.Client
 }
 
 // The current auth state of the client. Can be individually invalidated by
@@ -84,8 +88,17 @@ func (a *authorizationState) invalidate() {
 // NewB2 creates a new Client for accessing the B2 API.
 // The AuthorizeAccount method will be called immediately.
 func NewB2(creds Credentials) (*B2, error) {
+
+	return NewB2WithHTTPClient(creds, &http.Client{})
+}
+
+// NewB2WithHTTPClient creates a new Client for accessing the B2 API with a custom http.Client
+// The AuthorizeAccount method will be called immediately.
+func NewB2WithHTTPClient(creds Credentials, httpclient *http.Client) (*B2, error) {
 	c := &B2{
-		Credentials: creds,
+		Credentials:    creds,
+		MaxIdleUploads: 10,
+		httpClient:     httpclient,
 	}
 
 	// Authorize account
