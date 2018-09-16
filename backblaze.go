@@ -39,6 +39,10 @@ type B2 struct {
 	// If true, display debugging information about API calls
 	Debug bool
 
+	// Number of MaxIdleUploads to keep for reuse.
+	// This must be set prior to creating a bucket struct
+	MaxIdleUploads int
+
 	// State
 	mutex      sync.Mutex
 	host       string
@@ -85,7 +89,8 @@ func (a *authorizationState) invalidate() {
 // The AuthorizeAccount method will be called immediately.
 func NewB2(creds Credentials) (*B2, error) {
 	c := &B2{
-		Credentials: creds,
+		Credentials:    creds,
+		MaxIdleUploads: 1,
 	}
 
 	// Authorize account
