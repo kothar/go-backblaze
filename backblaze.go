@@ -90,7 +90,7 @@ func (a *authorizationState) invalidate() {
 func NewB2(creds Credentials) (*B2, error) {
 	c := &B2{
 		Credentials:    creds,
-		MaxIdleUploads: 10,
+		MaxIdleUploads: 1,
 	}
 
 	// Authorize account
