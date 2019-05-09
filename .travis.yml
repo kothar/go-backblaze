@@ -27,7 +27,9 @@ install:
 
 script:
  - go vet ./...
- - diff <(goimports -l . | grep -v _ffjson.go) <(printf "")
- - diff <(golint ./... | grep -v _ffjson.go) <(printf "")
+ # this is to work around differences in gofmt between 1.9/1.10/1.11
+ - go version | egrep 'go1.9.|go1.10.' > /dev/null && sed -i 's/valid:                    true/valid: true/'
+ - diff <(goimports -l .) <(printf "")
+ - diff <(golint ./...) <(printf "")
  - go test -v -cpu=2 ./...
  - go test -v -cpu=1,2,4 -short -race ./...
