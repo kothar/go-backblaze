@@ -134,7 +134,7 @@ func (c *B2) internalAuthorizeAccount() error {
 	// Store token
 	c.auth = &authorizationState{
 		authorizeAccountResponse: authResponse,
-		valid: true,
+		valid:                    true,
 	}
 
 	return nil
