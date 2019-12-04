@@ -13,7 +13,8 @@ import (
 // Options defines command line flags used by this application
 type Options struct {
 	// Credentials
-	AccountID      string `long:"account" env:"B2_ACCOUNT_ID" description:"The account ID to use"`
+	AccountID      string `long:"account" env:"B2_ACCOUNT_ID" description:"The Master Application Key ID"`
+	ApplicationID  string `long:"application" env:"B2_APPLICATION_ID" description:"The Application Key ID (if specified, will be used instead of Master Application Key)"`
 	ApplicationKey string `long:"appKey" env:"B2_APP_KEY" description:"The application key to use"`
 
 	// Bucket
@@ -39,6 +40,7 @@ func main() {
 func Client() (*backblaze.B2, error) {
 	c, err := backblaze.NewB2(backblaze.Credentials{
 		AccountID:      opts.AccountID,
+		KeyID:          opts.ApplicationID,
 		ApplicationKey: opts.ApplicationKey,
 	})
 	if err != nil {
