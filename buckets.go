@@ -27,14 +27,14 @@ type UploadAuth struct {
 // Buckets can be named. The name must be globally unique. No account can use
 // a bucket with the same name. Buckets are assigned a unique bucketId which
 // is used when uploading, downloading, or deleting files.
-func (b *B2) CreateBucket(bucketName string, bucketType BucketType) (*Bucket, error) {
-	return b.CreateBucketWithInfo(bucketName, bucketType, nil, nil)
+func (c *B2) CreateBucket(bucketName string, bucketType BucketType) (*Bucket, error) {
+	return c.CreateBucketWithInfo(bucketName, bucketType, nil, nil)
 }
 
 // CreateBucketWithInfo extends CreateBucket to add bucket info and lifecycle rules to the creation request
-func (b *B2) CreateBucketWithInfo(bucketName string, bucketType BucketType, bucketInfo map[string]string, lifecycleRules []LifecycleRule) (*Bucket, error) {
+func (c *B2) CreateBucketWithInfo(bucketName string, bucketType BucketType, bucketInfo map[string]string, lifecycleRules []LifecycleRule) (*Bucket, error) {
 	request := &createBucketRequest{
-		AccountID:      b.AccountID,
+		AccountID:      c.AccountID,
 		BucketName:     bucketName,
 		BucketType:     bucketType,
 		BucketInfo:     bucketInfo,
@@ -42,14 +42,14 @@ func (b *B2) CreateBucketWithInfo(bucketName string, bucketType BucketType, buck
 	}
 	response := &BucketInfo{}
 
-	if err := b.apiRequest("b2_create_bucket", request, response); err != nil {
+	if err := c.apiRequest("b2_create_bucket", request, response); err != nil {
 		return nil, err
 	}
 
 	bucket := &Bucket{
 		BucketInfo:     response,
-		uploadAuthPool: make(chan *UploadAuth, b.MaxIdleUploads),
-		b2:             b,
+		uploadAuthPool: make(chan *UploadAuth, c.MaxIdleUploads),
+		b2:             c,
 	}
 
 	return bucket, nil
@@ -57,40 +57,40 @@ func (b *B2) CreateBucketWithInfo(bucketName string, bucketType BucketType, buck
 
 // deleteBucket removes the specified bucket from the authorized account. Only
 // buckets that contain no version of any files can be deleted.
-func (b *B2) deleteBucket(bucketID string) (*Bucket, error) {
+func (c *B2) deleteBucket(bucketID string) (*Bucket, error) {
 	request := &deleteBucketRequest{
-		AccountID: b.AccountID,
+		AccountID: c.AccountID,
 		BucketID:  bucketID,
 	}
 	response := &BucketInfo{}
 
-	if err := b.apiRequest("b2_delete_bucket", request, response); err != nil {
+	if err := c.apiRequest("b2_delete_bucket", request, response); err != nil {
 		return nil, err
 	}
 
 	return &Bucket{
 		BucketInfo:     response,
-		uploadAuthPool: make(chan *UploadAuth, b.MaxIdleUploads),
-		b2:             b,
+		uploadAuthPool: make(chan *UploadAuth, c.MaxIdleUploads),
+		b2:             c,
 	}, nil
 }
 
 // Delete removes removes the bucket from the authorized account. Only buckets
 // that contain no version of any files can be deleted.
 func (b *Bucket) Delete() error {
-	_, error := b.b2.deleteBucket(b.ID)
-	return error
+	_, err := b.b2.deleteBucket(b.ID)
+	return err
 }
 
 // ListBuckets lists buckets associated with an account, in alphabetical order
 // by bucket ID.
-func (b *B2) ListBuckets() ([]*Bucket, error) {
+func (c *B2) ListBuckets() ([]*Bucket, error) {
 	request := &accountRequest{
-		ID: b.AccountID,
+		ID: c.AccountID,
 	}
 	response := &listBucketsResponse{}
 
-	if err := b.apiRequest("b2_list_buckets", request, response); err != nil {
+	if err := c.apiRequest("b2_list_buckets", request, response); err != nil {
 		return nil, err
 	}
 
@@ -99,8 +99,8 @@ func (b *B2) ListBuckets() ([]*Bucket, error) {
 	for i, info := range response.Buckets {
 		bucket := &Bucket{
 			BucketInfo:     info,
-			uploadAuthPool: make(chan *UploadAuth, b.MaxIdleUploads),
-			b2:             b,
+			uploadAuthPool: make(chan *UploadAuth, c.MaxIdleUploads),
+			b2:             c,
 		}
 
 		switch info.BucketType {
@@ -118,17 +118,17 @@ func (b *B2) ListBuckets() ([]*Bucket, error) {
 }
 
 // UpdateBucket allows properties of a bucket to be modified
-func (b *B2) updateBucket(request *updateBucketRequest) (*Bucket, error) {
+func (c *B2) updateBucket(request *updateBucketRequest) (*Bucket, error) {
 	response := &BucketInfo{}
 
-	if err := b.apiRequest("b2_update_bucket", request, response); err != nil {
+	if err := c.apiRequest("b2_update_bucket", request, response); err != nil {
 		return nil, err
 	}
 
 	return &Bucket{
 		BucketInfo:     response,
-		uploadAuthPool: make(chan *UploadAuth, b.MaxIdleUploads),
-		b2:             b,
+		uploadAuthPool: make(chan *UploadAuth, c.MaxIdleUploads),
+		b2:             c,
 	}, nil
 }
 
@@ -165,8 +165,8 @@ func (b *Bucket) UpdateAll(bucketType BucketType, bucketInfo map[string]string, 
 }
 
 // Bucket looks up a bucket for the currently authorized client
-func (b *B2) Bucket(bucketName string) (*Bucket, error) {
-	buckets, err := b.ListBuckets()
+func (c *B2) Bucket(bucketName string) (*Bucket, error) {
+	buckets, err := c.ListBuckets()
 	if err != nil {
 		return nil, err
 	}

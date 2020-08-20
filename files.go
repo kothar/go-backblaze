@@ -72,7 +72,7 @@ func (b *Bucket) UploadTypedFile(name, contentType string, meta map[string]strin
 	// Hash the upload
 	hash := sha1.New()
 
-	var reader io.Reader
+	var reader io.ReadSeeker
 	var contentLength int64
 	if r, ok := file.(io.ReadSeeker); ok {
 		// If the input is seekable, just hash then seek back to the beginning
@@ -80,11 +80,13 @@ func (b *Bucket) UploadTypedFile(name, contentType string, meta map[string]strin
 		if err != nil {
 			return nil, err
 		}
-		r.Seek(0, 0)
+		if _, err := r.Seek(0, 0); err != nil {
+			return nil, err
+		}
 		reader = r
 		contentLength = written
 	} else {
-		// If the input is not seekable, buffer it while hashing, and use the buffer as input
+		// If the input is not seekable, buffer it while hashing, and use the buffer bytes as input
 		buffer := &bytes.Buffer{}
 		r := io.TeeReader(file, buffer)
 
@@ -92,7 +94,7 @@ func (b *Bucket) UploadTypedFile(name, contentType string, meta map[string]strin
 		if err != nil {
 			return nil, err
 		}
-		reader = buffer
+		reader = bytes.NewReader(buffer.Bytes())
 		contentLength = written
 	}
 
@@ -102,6 +104,9 @@ func (b *Bucket) UploadTypedFile(name, contentType string, meta map[string]strin
 	// Retry after non-fatal errors
 	if b2err, ok := err.(*B2Error); ok {
 		if !b2err.IsFatal() && !b.b2.NoRetry {
+			if _, err := reader.Seek(0, 0); err != nil {
+				return nil, err
+			}
 			f, err = b.UploadHashedTypedFile(name, contentType, meta, reader, sha1Hash, contentLength)
 		}
 	}
@@ -304,7 +309,7 @@ func (b *Bucket) ReadaheadFileByName(fileName string) (*File, io.ReadCloser, err
 		return nil, nil, err
 	}
 	if len(resp.Files) != 1 || resp.Files[0].Name != fileName {
-		return nil, nil, fmt.Errorf("Unable to find file %s in bucket %s", fileName, b.Name)
+		return nil, nil, fmt.Errorf("unable to find file %s in bucket %s", fileName, b.Name)
 	}
 
 	file := &resp.Files[0].File
@@ -461,7 +466,7 @@ func (c *B2) downloadFile(resp *http.Response, auth *authorizationState) (*File,
 			return nil, nil, err
 		}
 
-		return nil, nil, fmt.Errorf("Unrecognised status code: %d", resp.StatusCode)
+		return nil, nil, fmt.Errorf("unrecognised status code: %d", resp.StatusCode)
 	}
 
 	name, err := url.QueryUnescape(resp.Header.Get("X-Bz-File-Name"))
@@ -490,7 +495,7 @@ func (c *B2) downloadFile(resp *http.Response, auth *authorizationState) (*File,
 		var start, end, total int64
 		_, err := fmt.Sscanf(contentRange, "bytes %d-%d/%d", &start, &end, &total)
 		if err != nil {
-			return nil, nil, fmt.Errorf("Unable to parse Content-Range header: %s", err)
+			return nil, nil, fmt.Errorf("unable to parse Content-Range header: %s", err)
 		}
 		if end-start+1 != file.ContentLength {
 			return nil, nil, fmt.Errorf("Content-Range (%d-%d) does not match Content-Length (%d)", start, end, file.ContentLength)
