@@ -32,6 +32,17 @@ type Credentials struct {
 	AccountID      string
 	ApplicationKey string
 	KeyID          string
+	Api
+}
+
+// Api is for setting Backblaze API settings.
+//
+// The Host is a string to set API host.
+//
+// The Version is a string to specify API version.
+type Api struct {
+	Host    string
+	Version string
 }
 
 // B2 implements a B2 API client. Do not modify state concurrently.
@@ -47,6 +58,8 @@ type B2 struct {
 	// Number of MaxIdleUploads to keep for reuse.
 	// This must be set prior to creating a bucket struct
 	MaxIdleUploads int
+
+	version string
 
 	// State
 	mutex      sync.Mutex
@@ -120,7 +133,17 @@ func (c *B2) internalAuthorizeAccount() error {
 		c.host = b2Host
 	}
 
-	req, err := http.NewRequest("GET", c.host+v1+"b2_authorize_account", nil)
+	if c.Credentials.Api.Host != "" {
+		c.host = c.Credentials.Api.Host
+	}
+
+	if c.Credentials.Api.Version != "" {
+		c.version = c.Credentials.Api.Version
+	} else {
+		c.version = v1
+	}
+
+	req, err := http.NewRequest("GET", c.host+c.version+"b2_authorize_account", nil)
 	if err != nil {
 		return err
 	}
@@ -186,7 +209,7 @@ func (c *B2) authRequest(method, apiPath string, body io.Reader) (*http.Request,
 		}
 	}
 
-	path := c.auth.APIEndpoint + v1 + apiPath
+	path := c.auth.APIEndpoint + c.version + apiPath
 
 	req, err := http.NewRequest(method, path, body)
 	if err != nil {

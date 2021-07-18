@@ -10,7 +10,7 @@ Some simple examples to get you started. Errors are ommitted for brevity
 
 Import the API package
 ~~~
-import "gopkg.in/kothar/go-backblaze.v0"
+import "gopkg.in/emilhakobian/go-backblaze.v0"
 ~~~
 
 Create an API client
