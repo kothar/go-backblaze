@@ -172,6 +172,13 @@ func (c *B2) DownloadURL() (string, error) {
 	return c.auth.DownloadURL, nil
 }
 
+func (c *B2) AuthorizationToken() (string, error) {
+	if err := c.AuthorizeAccount(); err != nil {
+		return "", err
+	}
+	return c.auth.AuthorizationToken, nil
+}
+
 // Create an authorized request using the client's credentials
 func (c *B2) authRequest(method, apiPath string, body io.Reader) (*http.Request, *authorizationState, error) {
 	c.mutex.Lock()
