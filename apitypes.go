@@ -193,7 +193,7 @@ type fileCopyRequest struct {
 	ID                  string                `json:"sourceFileId"`
 	Name                string                `json:"fileName"`
 	MetadataDirective   FileMetadataDirective `json:"metadataDirective"`
-	DestinationBucketID string                `json:"destinationBucketId"`
+	DestinationBucketID string                `json:"destinationBucketId,omitempty"`
 }
 
 type hideFileRequest struct {
