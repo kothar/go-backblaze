@@ -225,3 +225,28 @@ const (
 type FileStatus struct {
 	File
 }
+
+type CreateKeyRequest struct {
+	AccountID              string   `json:"accountId"`
+	Capabilities           []string `json:"capabilities"`
+	KeyName                string   `json:"keyName"`
+	ValidDurationInSeconds int      `json:"validDurationInSeconds,omitempty"`
+	BucketId               string   `json:"bucketId,omitempty"`
+	NamePrefix             string   `json:"namePrefix,omitempty"`
+}
+
+type ApplicationKeyResponse struct {
+	KeyName             string   `json:"keyName"`
+	ApplicationKeyId    string   `json:"applicationKeyId"`
+	ApplicationKey      string   `json:"applicationKey"`
+	Capabilities        []string `json:"capabilities"`
+	AccountID           string   `json:"accountId"`
+	ExpirationTimestamp int      `json:"expirationTimestamp"`
+	BucketId            string   `json:"bucketId"`
+	NamePrefix          string   `json:"namePrefix"`
+	Options             []string `json:"options"`
+}
+
+type DeleteKeyRequest struct {
+	ApplicationKeyId string `json:"applicationKeyId"`
+}
