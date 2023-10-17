@@ -233,6 +233,11 @@ func (b *Bucket) ReturnUploadAuth(uploadAuth *UploadAuth) {
 }
 
 // CreateApplicationKey creates application key
+// It is possible to limit application key capabilities by defining an
+// array with allowed permission
+// (which can be find here https://www.backblaze.com/apidocs/b2-create-key)
+// This function to work requires master application key to
+// be used for authenticaion
 func (b *B2) CreateApplicationKey(keyDetails *CreateKeyRequest) (*ApplicationKeyResponse, error) {
 	request := &CreateKeyRequest{
 		AccountID:              b.AccountID,
@@ -252,7 +257,9 @@ func (b *B2) CreateApplicationKey(keyDetails *CreateKeyRequest) (*ApplicationKey
 	return response, nil
 }
 
-// DeleteApplicationKey deletes application keys
+// DeleteApplicationKey deletes application keys by providing applicationKeyID
+// This function to work requires master application key to
+// be used for authenticaion
 func (b *B2) DeleteApplicationKey(applicationKeyId string) (*ApplicationKeyResponse, error) {
 	request := &DeleteKeyRequest{
 		ApplicationKeyId: applicationKeyId,
