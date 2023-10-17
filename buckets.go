@@ -108,7 +108,7 @@ func (b *B2) ListBuckets() ([]*Bucket, error) {
 		case AllPrivate:
 		case Snapshot:
 		default:
-			return nil, errors.New("Uncrecognised bucket type: " + string(bucket.BucketType))
+			return nil, errors.New("Unrecognized bucket type: " + string(bucket.BucketType))
 		}
 
 		buckets[i] = bucket
@@ -230,4 +230,46 @@ func (b *Bucket) ReturnUploadAuth(uploadAuth *UploadAuth) {
 		default:
 		}
 	}
+}
+
+// CreateApplicationKey creates application key
+// It is possible to limit application key capabilities by defining an
+// array with allowed permission
+// (which can be find here https://www.backblaze.com/apidocs/b2-create-key)
+// This function to work requires master application key to
+// be used for authenticaion
+func (b *B2) CreateApplicationKey(keyDetails *CreateKeyRequest) (*ApplicationKeyResponse, error) {
+	request := &CreateKeyRequest{
+		AccountID:              b.AccountID,
+		Capabilities:           keyDetails.Capabilities,
+		KeyName:                keyDetails.KeyName,
+		ValidDurationInSeconds: keyDetails.ValidDurationInSeconds,
+		BucketId:               keyDetails.BucketId,
+		NamePrefix:             keyDetails.NamePrefix,
+	}
+
+	response := &ApplicationKeyResponse{}
+
+	if err := b.apiRequest("b2_create_key", request, response); err != nil {
+		return nil, err
+	}
+
+	return response, nil
+}
+
+// DeleteApplicationKey deletes application keys by providing applicationKeyID
+// This function to work requires master application key to
+// be used for authenticaion
+func (b *B2) DeleteApplicationKey(applicationKeyId string) (*ApplicationKeyResponse, error) {
+	request := &DeleteKeyRequest{
+		ApplicationKeyId: applicationKeyId,
+	}
+
+	response := &ApplicationKeyResponse{}
+
+	if err := b.apiRequest("b2_delete_key", request, response); err != nil {
+		return nil, err
+	}
+
+	return response, nil
 }
