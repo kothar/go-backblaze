@@ -241,7 +241,7 @@ type ApplicationKeyResponse struct {
 	ApplicationKey      string   `json:"applicationKey"`
 	Capabilities        []string `json:"capabilities"`
 	AccountID           string   `json:"accountId"`
-	ExpirationTimestamp int      `json:"expirationTimestamp"`
+	ExpirationTimestamp int64    `json:"expirationTimestamp"`
 	BucketId            string   `json:"bucketId"`
 	NamePrefix          string   `json:"namePrefix"`
 	Options             []string `json:"options"`
